@@ -1,4 +1,4 @@
-// IndividualFitnessCard.jsx - VERSION AVEC CHARGEMENT DYNAMIQUE DES TESTS
+// IndividualFitnessCard.jsx - VERSION AVEC CHARGEMENT DYNAMIQUE DES TESTS ET CORRECTION 36"-24"
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
@@ -49,7 +49,7 @@ const IndividualFitnessCard = () => {
   const [testsLoading, setTestsLoading] = useState(true);
 
   // ============================================================================
-  // SYSTÈME DE NOTATION DYNAMIQUE INTÉGRÉ (inchangé)
+  // SYSTÈME DE NOTATION DYNAMIQUE INTÉGRÉ
   // ============================================================================
 
   // Fonction pour calculer les percentiles à partir des données réelles
@@ -66,20 +66,32 @@ const IndividualFitnessCard = () => {
     };
   };
 
-  // Fonction pour déterminer la direction du test
+  // Fonction CORRIGÉE pour déterminer la direction du test
   const getTestDirection = (testName) => {
-    // Tests où un temps plus faible est meilleur
-    const timeBasedTests = ['SPRINTS', '30 mètres', 'VITESSE', '36"', '24"'];
+    // Tests où un TEMPS plus faible est meilleur (mesurés en secondes)
+    const timeBasedTests = ['SPRINTS 10 x 5', '30 mètres'];
     
-    // Tests où une valeur plus élevée est meilleure
+    // Tests où une VITESSE plus élevée est meilleure (mesurés en km/h, m/s)
+    const speedBasedTests = ['36"-24"', 'VITESSE'];
+    
+    // Tests où une valeur plus élevée est meilleure (distances, répétitions, scores)
     const higherIsBetterTests = [
       'COOPER', 'DEMI-COOPER', 'NAVETTE', 'RECTANGLE MAGIQUE', 
       'SAUT', 'LANCER', 'CHAISE', 'PLANCHE', 'SUSPENSION', 'POIGNÉE',
       'FOULÉES', 'TRIPLE SAUT', 'MONOPODAL', 'SOUPLESSE'
     ];
 
+    // Vérifier si c'est un test de temps (plus faible = meilleur)
     if (timeBasedTests.some(test => testName.includes(test))) return false;
-    return true; // Par défaut, plus élevé = meilleur
+    
+    // Vérifier si c'est un test de vitesse (plus élevé = meilleur)
+    if (speedBasedTests.some(test => testName.includes(test))) return true;
+    
+    // Vérifier si c'est dans la liste des "plus élevé = meilleur"
+    if (higherIsBetterTests.some(test => testName.includes(test))) return true;
+    
+    // Par défaut, plus élevé = meilleur
+    return true;
   };
 
   // Fonction pour récupérer les données réelles d'un test spécifique
@@ -201,7 +213,7 @@ const IndividualFitnessCard = () => {
     let level;
 
     if (higherIsBetter) {
-      // Plus élevé = meilleur (Rectangle magique, distances, etc.)
+      // Plus élevé = meilleur (Rectangle magique, distances, vitesses, etc.)
       if (numericValue >= percentiles.p90) {
         score = Math.floor(Math.random() * 16) + 85; // 85-100pts
         level = "Excellent";
@@ -828,6 +840,9 @@ const IndividualFitnessCard = () => {
               <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
                 Tests chargés dynamiquement
               </span>
+              <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">
+                Test 36"-24" corrigé
+              </span>
             </div>
           </div>
 
@@ -914,7 +929,7 @@ const IndividualFitnessCard = () => {
                 <CheckCircle className="text-green-600" size={16} />
                 <p className="text-sm text-green-700">
                   <strong>{allTests.length} tests chargés dynamiquement</strong> depuis la base de données. 
-                  Tous les nouveaux tests apparaîtront automatiquement dans les fiches !
+                  Le test 36"-24" est maintenant correctement configuré (plus rapide = meilleur) !
                 </p>
               </div>
             </div>
@@ -971,6 +986,9 @@ const IndividualFitnessCard = () => {
                       </span>
                       <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
                         Tests chargés dynamiquement
+                      </span>
+                      <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">
+                        Test 36"-24" corrigé
                       </span>
                     </div>
                   </div>
@@ -1118,6 +1136,9 @@ const IndividualFitnessCard = () => {
                     </span>
                     <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
                       Tests chargés dynamiquement
+                    </span>
+                    <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">
+                      Test 36"-24" corrigé
                     </span>
                   </div>
                 </div>
@@ -1296,7 +1317,7 @@ const IndividualFitnessCard = () => {
             </p>
             <div className="mt-4 text-xs text-gray-500 bg-gray-50 p-3 rounded">
               <p><strong>Système de notation dynamique :</strong> Les scores sont calculés en temps réel selon les performances actuelles des élèves de même niveau et sexe de votre établissement. Cette approche garantit une évaluation toujours adaptée et équitable, avec un minimum de 5 élèves requis par barème.</p>
-              <p className="mt-2"><strong>Tests chargés dynamiquement :</strong> {allTests.length} tests chargés depuis la base de données. Tous les nouveaux tests apparaissent automatiquement !</p>
+              <p className="mt-2"><strong>Tests chargés dynamiquement :</strong> {allTests.length} tests chargés depuis la base de données. Le test 36"-24" traite maintenant correctement la vitesse (plus rapide = meilleur) !</p>
             </div>
           </div>
         </div>
