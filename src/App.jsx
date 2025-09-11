@@ -345,6 +345,8 @@ const Header = () => {
               <div className="text-right">
                 <p className="text-gray-500 text-xs">Créé par</p>
                 <p className="text-blue-600 font-medium text-sm">Eude Florian</p>
+                <p className="text-gray-500 text-xs">Contributeur</p>
+    <p className="text-green-600 font-medium text-sm">Cospérec Emeric</p>
               </div>
               <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-green-500 rounded-full flex items-center justify-center">
                 <span className="text-white font-bold text-xs">EF</span>
