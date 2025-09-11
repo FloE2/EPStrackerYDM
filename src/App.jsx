@@ -191,6 +191,13 @@ const SupabaseTest = () => {
             <RefreshCw size={16} />
             <span>Actualiser</span>
           </button>
+          <button 
+  onClick={cleanAllNullValues}
+  className="flex items-center space-x-2 px-4 py-2 bg-orange-500 bg-opacity-80 rounded-lg hover:bg-opacity-100"
+>
+  <X size={16} />
+  <span>Nettoyer les "null"</span>
+</button>
           
           <button
             onClick={() => window.location.reload()}

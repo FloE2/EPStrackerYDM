@@ -305,6 +305,34 @@ const ResultsEntrySupabase = () => {
     setEditStatus('result');
   };
 
+  // Fonction pour nettoyer toutes les valeurs "null" de la classe
+const cleanAllNullValues = async () => {
+  if (!confirm('Supprimer toutes les valeurs "null" de cette classe ?')) return;
+  
+  try {
+    setSaving(true);
+    
+    const studentIds = students.map(s => s.id);
+    
+    const { data: nullResults, error: fetchError } = await supabase
+      .from('results')
+      .select('*')
+      .in('student_id', studentIds)
+      .eq('school_year', selectedSchoolYear)
+      .or('value.eq.null,value.eq.NULL,value.ilike.%null%');
+    
+    if (nullResults?.length > 0) {
+      await supabase.from('results').delete().in('id', nullResults.map(r => r.id));
+      loadClassData(selectedClass.id);
+      alert(`${nullResults.length} valeur(s) "null" supprimée(s) !`);
+    }
+  } catch (error) {
+    alert('Erreur lors du nettoyage');
+  } finally {
+    setSaving(false);
+  }
+};
+
   const refreshData = () => {
     if (selectedClass) {
       loadClassData(selectedClass.id);
