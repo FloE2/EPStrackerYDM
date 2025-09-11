@@ -313,17 +313,24 @@ const ResultsEntrySupabase = () => {
     try {
       setSaving(true);
       
-      // Récupérer tous les résultats de cet élève qui contiennent "null"
-      const { data: nullResults, error: fetchError } = await supabase
+      // Récupérer TOUS les résultats de cet élève d'abord
+      const { data: allResults, error: fetchError } = await supabase
         .from('results')
         .select('*')
         .eq('student_id', studentId)
-        .eq('school_year', selectedSchoolYear)
-        .or('value.eq.null,value.eq.NULL,value.ilike.%null%');
+        .eq('school_year', selectedSchoolYear);
       
       if (fetchError) throw fetchError;
       
-      if (nullResults && nullResults.length > 0) {
+      // Filtrer côté client les résultats qui contiennent "null"
+      const nullResults = allResults?.filter(result => 
+        result.value === null || 
+        result.value === 'null' || 
+        result.value === 'NULL' ||
+        (typeof result.value === 'string' && result.value.toLowerCase().includes('null'))
+      ) || [];
+      
+      if (nullResults.length > 0) {
         // Supprimer ces résultats de la base de données
         const { error: deleteError } = await supabase
           .from('results')
@@ -365,17 +372,24 @@ const ResultsEntrySupabase = () => {
       // Récupérer tous les IDs des élèves de cette classe
       const studentIds = students.map(s => s.id);
       
-      // Récupérer tous les résultats "null" de cette classe
-      const { data: nullResults, error: fetchError } = await supabase
+      // Récupérer TOUS les résultats de cette classe
+      const { data: allResults, error: fetchError } = await supabase
         .from('results')
         .select('*')
         .in('student_id', studentIds)
-        .eq('school_year', selectedSchoolYear)
-        .or('value.eq.null,value.eq.NULL,value.ilike.%null%');
+        .eq('school_year', selectedSchoolYear);
       
       if (fetchError) throw fetchError;
       
-      if (nullResults && nullResults.length > 0) {
+      // Filtrer côté client les résultats qui contiennent "null"
+      const nullResults = allResults?.filter(result => 
+        result.value === null || 
+        result.value === 'null' || 
+        result.value === 'NULL' ||
+        (typeof result.value === 'string' && result.value.toLowerCase().includes('null'))
+      ) || [];
+      
+      if (nullResults.length > 0) {
         // Supprimer ces résultats
         const { error: deleteError } = await supabase
           .from('results')
