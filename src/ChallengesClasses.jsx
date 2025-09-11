@@ -1,4 +1,4 @@
-// ChallengesClasses.jsx - Challenges et comparaisons entre classes
+// ChallengesClasses.jsx - VERSION AVEC EXPORT PDF INTÉGRÉ
 import React, { useState, useEffect } from 'react';
 import {
   Trophy,
@@ -131,6 +131,446 @@ const ChallengesClasses = () => {
     };
     return colors[level] || colors['6ème'];
   };
+
+  // ============================================================================
+  // FONCTION D'EXPORT PDF INTÉGRÉE
+  // ============================================================================
+
+  // Fonction principale d'export PDF
+  const exportChallengesPDF = () => {
+    if (!challengeResults || challengeResults.length === 0) {
+      alert('Aucune donnée à exporter. Veuillez d\'abord configurer et lancer un challenge.');
+      return;
+    }
+    
+    // Préparer les données pour l'export
+    const exportData = challengeResults.map((data, index) => ({
+      rank: index + 1,
+      classDisplayName: `${data.classe.level}${data.classe.name}`,
+      level: data.classe.level,
+      name: data.classe.name,
+      averageScore: data.average || 0,
+      bestScore: data.bestScore || 0,
+      participationRate: data.participation || 0,
+      excellentCount: data.excellentCount || 0,
+      completedTests: data.completedTests || 0,
+      totalTests: data.totalTests || 0,
+      totalStudents: data.studentsCount || 0
+    }));
+
+    // Configuration pour l'export
+    const config = {
+      schoolYear: selectedSchoolYear,
+      comparisonType: getComparisonTypeLabel(),
+      selectedTest: getSelectedTestLabel(),
+      selectedLevel: selectedLevel === 'all' ? 'Tous niveaux' : selectedLevel,
+      sortBy: getSortByLabel(),
+      establishmentName: "Collège Yves du Manoir",
+      totalResults: results.length
+    };
+    
+    // Générer et afficher le PDF
+    const printContent = generatePrintHTML(exportData, config);
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.open();
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 250);
+    };
+  };
+
+  // Fonctions utilitaires pour les labels
+  const getComparisonTypeLabel = () => {
+    switch (selectedComparison) {
+      case 'test': return 'Par test spécifique';
+      case 'category': return 'Par catégorie';
+      case 'participation': return 'Participation globale';
+      default: return 'Par test spécifique';
+    }
+  };
+
+  const getSelectedTestLabel = () => {
+    if (selectedComparison === 'test' && selectedTest) {
+      return `${selectedTest.name} (${selectedTest.category})`;
+    } else if (selectedComparison === 'category') {
+      return `Catégorie ${categories[selectedCategory]?.name || selectedCategory}`;
+    } else if (selectedComparison === 'participation') {
+      return 'Tous les tests';
+    }
+    return 'N/A';
+  };
+
+  const getSortByLabel = () => {
+    switch (sortBy) {
+      case 'average': return 'Moyenne des résultats';
+      case 'participation': return 'Taux de participation';
+      case 'excellence': return 'Taux d\'excellence (85+)';
+      default: return 'Moyenne des résultats';
+    }
+  };
+
+  // Génération du HTML pour l'impression
+  const generatePrintHTML = (challengeData, config) => {
+    const currentDate = new Date().toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Challenge Classes - ${config.schoolYear}</title>
+    <style>
+        /* Reset et configuration de base */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        /* Configuration page A4 */
+        @page {
+            size: A4;
+            margin: 15mm;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 11px;
+            line-height: 1.3;
+            color: #333;
+            background: white;
+        }
+        
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid #4F46E5;
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            color: #4F46E5;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        
+        .header .subtitle {
+            font-size: 14px;
+            color: #6B7280;
+            margin-bottom: 8px;
+        }
+        
+        .header .info-line {
+            font-size: 12px;
+            color: #374151;
+        }
+        
+        /* Configuration du challenge */
+        .config-section {
+            background: #F9FAFB;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #E5E7EB;
+        }
+        
+        .config-title {
+            font-size: 14px;
+            font-weight: bold;
+            color: #374151;
+            margin-bottom: 8px;
+        }
+        
+        .config-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 15px;
+        }
+        
+        .config-item {
+            text-align: center;
+        }
+        
+        .config-label {
+            font-size: 10px;
+            color: #6B7280;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .config-value {
+            font-size: 12px;
+            font-weight: bold;
+            color: #111827;
+        }
+        
+        /* Tableau des résultats */
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            font-size: 10px;
+        }
+        
+        .results-table th {
+            background: #4F46E5;
+            color: white;
+            padding: 8px 6px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 9px;
+            text-transform: uppercase;
+        }
+        
+        .results-table td {
+            padding: 6px;
+            text-align: center;
+            border-bottom: 1px solid #E5E7EB;
+        }
+        
+        .results-table tr:nth-child(even) {
+            background: #F9FAFB;
+        }
+        
+        /* Styles pour le rang */
+        .rank-cell {
+            font-weight: bold;
+            font-size: 12px;
+        }
+        
+        .rank-1 { color: #FFD700; }
+        .rank-2 { color: #C0C0C0; }
+        .rank-3 { color: #CD7F32; }
+        
+        /* Classe */
+        .class-cell {
+            font-weight: bold;
+            font-size: 11px;
+        }
+        
+        /* Métriques */
+        .metric-excellent { color: #059669; font-weight: bold; }
+        .metric-good { color: #0EA5E9; font-weight: bold; }
+        .metric-average { color: #F59E0B; font-weight: bold; }
+        .metric-low { color: #DC2626; font-weight: bold; }
+        
+        /* Message de félicitations */
+        .congratulations {
+            background: linear-gradient(135deg, #FEF3C7, #FDE68A);
+            border: 2px solid #F59E0B;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        
+        .congratulations h3 {
+            color: #92400E;
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+        
+        .congratulations p {
+            color: #B45309;
+            font-size: 10px;
+        }
+        
+        /* Statistiques résumées */
+        .summary-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+        
+        .stat-card {
+            background: white;
+            border: 1px solid #E5E7EB;
+            border-radius: 6px;
+            padding: 8px;
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 16px;
+            font-weight: bold;
+            color: #4F46E5;
+        }
+        
+        .stat-label {
+            font-size: 9px;
+            color: #6B7280;
+            text-transform: uppercase;
+            margin-top: 2px;
+        }
+        
+        /* Footer */
+        .footer {
+            position: fixed;
+            bottom: 10mm;
+            left: 15mm;
+            right: 15mm;
+            text-align: center;
+            font-size: 8px;
+            color: #6B7280;
+            border-top: 1px solid #E5E7EB;
+            padding-top: 5px;
+        }
+        
+        /* Masquer les éléments non imprimables */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <h1>🏆 Challenge Classes - EPS SANTÉ</h1>
+        <div class="subtitle">Comparaisons et défis motivants entre classes</div>
+        <div class="info-line">
+            ${config.establishmentName || 'Collège Yves du Manoir'} • Année ${config.schoolYear} • 
+            Édité le ${currentDate}
+        </div>
+    </div>
+    
+    <!-- Configuration du challenge -->
+    <div class="config-section">
+        <div class="config-title">Configuration du Challenge</div>
+        <div class="config-grid">
+            <div class="config-item">
+                <div class="config-label">Type de comparaison</div>
+                <div class="config-value">${config.comparisonType}</div>
+            </div>
+            <div class="config-item">
+                <div class="config-label">Test à comparer</div>
+                <div class="config-value">${config.selectedTest}</div>
+            </div>
+            <div class="config-item">
+                <div class="config-label">Niveau</div>
+                <div class="config-value">${config.selectedLevel}</div>
+            </div>
+            <div class="config-item">
+                <div class="config-label">Classer par</div>
+                <div class="config-value">${config.sortBy}</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Message de félicitations pour le leader -->
+    ${challengeData.length > 0 ? `
+    <div class="congratulations">
+        <h3>🏆 Champions ! Félicitations à toute la classe !</h3>
+        <p>${challengeData[0].classDisplayName} domine ce challenge avec un excellent niveau de participation et de performance !</p>
+    </div>
+    ` : ''}
+    
+    <!-- Statistiques résumées -->
+    <div class="summary-stats">
+        <div class="stat-card">
+            <div class="stat-number">${challengeData.length}</div>
+            <div class="stat-label">Classes participantes</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">${challengeData.reduce((sum, c) => sum + (c.totalStudents || 0), 0)}</div>
+            <div class="stat-label">Élèves au total</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">${challengeData.length > 0 ? Math.round(challengeData.reduce((sum, c) => sum + (c.participationRate || 0), 0) / challengeData.length) : 0}%</div>
+            <div class="stat-label">Participation moyenne</div>
+        </div>
+    </div>
+    
+    <!-- Tableau des résultats -->
+    <table class="results-table">
+        <thead>
+            <tr>
+                <th style="width: 8%">#</th>
+                <th style="width: 20%">Classe</th>
+                <th style="width: 12%">Moyenne</th>
+                <th style="width: 15%">Meilleur Score</th>
+                <th style="width: 12%">Participation</th>
+                <th style="width: 10%">Excellents</th>
+                <th style="width: 13%">Tests Réalisés</th>
+                <th style="width: 10%">Élèves</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${challengeData.map((classe, index) => {
+                const rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : '';
+                const rankIcon = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
+                
+                // Déterminer les classes CSS pour les métriques
+                const avgClass = (classe.averageScore || 0) >= 85 ? 'metric-excellent' : 
+                                (classe.averageScore || 0) >= 70 ? 'metric-good' : 
+                                (classe.averageScore || 0) >= 55 ? 'metric-average' : 'metric-low';
+                
+                const participationClass = (classe.participationRate || 0) >= 80 ? 'metric-excellent' : 
+                                          (classe.participationRate || 0) >= 60 ? 'metric-good' : 
+                                          (classe.participationRate || 0) >= 40 ? 'metric-average' : 'metric-low';
+                
+                return `
+                <tr>
+                    <td class="rank-cell ${rankClass}">${rankIcon} ${index + 1}</td>
+                    <td class="class-cell">${classe.classDisplayName}</td>
+                    <td class="${avgClass}">${Math.round(classe.averageScore || 0)}/100</td>
+                    <td class="${classe.bestScore >= 85 ? 'metric-excellent' : 'metric-good'}">${classe.bestScore !== null ? Math.round(classe.bestScore) : '—'}</td>
+                    <td class="${participationClass}">${Math.round(classe.participationRate || 0)}%</td>
+                    <td class="metric-excellent">${classe.excellentCount || 0}</td>
+                    <td>${classe.completedTests || 0}/${classe.totalTests || 0}</td>
+                    <td>${classe.totalStudents || 0}</td>
+                </tr>
+                `;
+            }).join('')}
+        </tbody>
+    </table>
+    
+    <!-- Message motivant -->
+    <div style="background: #EBF8FF; border: 1px solid #3182CE; border-radius: 6px; padding: 10px; text-align: center; margin-bottom: 15px;">
+        <p style="color: #2C5AA0; font-size: 11px; font-weight: 500;">
+            💪 L'activité physique régulière améliore la santé, la concentration et le bien-être. 
+            Objectif OMS : 60 minutes d'activité physique par jour pour les jeunes !
+        </p>
+    </div>
+    
+    <!-- Notes méthodologiques -->
+    <div style="background: #F7FAFC; border: 1px solid #CBD5E0; border-radius: 4px; padding: 8px; margin-bottom: 10px;">
+        <p style="font-size: 8px; color: #4A5568; line-height: 1.4;">
+            <strong>Méthodologie :</strong> Système de notation dynamique basé sur les percentiles de performance 
+            des élèves de même niveau et sexe. Excellent ≥85pts, Bon ≥70pts, Correct ≥55pts. 
+            Challenge généré le ${currentDate} avec ${config.totalResults || 0} résultats analysés.
+        </p>
+    </div>
+    
+    <!-- Footer -->
+    <div class="footer">
+        Document généré automatiquement par EPS Tracker YDM • 
+        ${config.establishmentName || 'Collège Yves du Manoir'} • 
+        ${currentDate}
+    </div>
+</body>
+</html>
+    `;
+  };
+
+  // ============================================================================
+  // RESTE DU CODE ORIGINAL INCHANGÉ
+  // ============================================================================
 
   // Chargement des données
   useEffect(() => {
@@ -337,23 +777,6 @@ const ChallengesClasses = () => {
     }
   };
 
-  // Export des résultats
-  const exportResults = () => {
-    const csvContent = challengeResults.map((data, index) => ({
-      Position: index + 1,
-      Classe: data.classe.name,
-      Niveau: data.classe.level,
-      Élèves: data.studentsCount,
-      Moyenne: data.average,
-      MeilleurScore: data.bestScore,
-      Participation: `${data.participation}%`,
-      Excellents: data.excellentCount
-    }));
-    
-    console.log('Export CSV:', csvContent);
-    // Ici vous pourriez implémenter l'export CSV réel
-  };
-
   // Interface de rendu
   if (loading) {
     return (
@@ -524,8 +947,9 @@ const ChallengesClasses = () => {
               </span>
             </div>
             <button
-              onClick={exportResults}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              onClick={exportChallengesPDF}
+              disabled={challengeResults.length === 0}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
             >
               <Download size={16} />
               <span>Exporter</span>
@@ -578,7 +1002,7 @@ const ChallengesClasses = () => {
                       </div>
                     </div>
 
-                    {/* Statistiques - MODIFIÉ POUR 5 COLONNES */}
+                    {/* Statistiques - 5 colonnes */}
                     <div className="grid grid-cols-5 gap-6 text-center">
                       <div>
                         <div className="text-2xl font-bold text-blue-600">
