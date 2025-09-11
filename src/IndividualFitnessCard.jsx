@@ -1,4 +1,4 @@
-// IndividualFitnessCard.jsx - VERSION AVEC SÉLECTION DE CLASSE
+// IndividualFitnessCard.jsx - VERSION AVEC CHARGEMENT DYNAMIQUE DES TESTS
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
@@ -42,9 +42,14 @@ const IndividualFitnessCard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [studentResults, setStudentResults] = useState(null);
   const [studentsCount, setStudentsCount] = useState({});
+  
+  // NOUVEAUX ÉTATS POUR LE CHARGEMENT DYNAMIQUE
+  const [allTests, setAllTests] = useState([]);
+  const [categories, setCategories] = useState({});
+  const [testsLoading, setTestsLoading] = useState(true);
 
   // ============================================================================
-  // SYSTÈME DE NOTATION DYNAMIQUE INTÉGRÉ
+  // SYSTÈME DE NOTATION DYNAMIQUE INTÉGRÉ (inchangé)
   // ============================================================================
 
   // Fonction pour calculer les percentiles à partir des données réelles
@@ -64,13 +69,13 @@ const IndividualFitnessCard = () => {
   // Fonction pour déterminer la direction du test
   const getTestDirection = (testName) => {
     // Tests où un temps plus faible est meilleur
-    const timeBasedTests = ['SPRINTS', '30 mètres', 'VITESSE'];
+    const timeBasedTests = ['SPRINTS', '30 mètres', 'VITESSE', '36"', '24"'];
     
     // Tests où une valeur plus élevée est meilleure
     const higherIsBetterTests = [
       'COOPER', 'DEMI-COOPER', 'NAVETTE', 'RECTANGLE MAGIQUE', 
       'SAUT', 'LANCER', 'CHAISE', 'PLANCHE', 'SUSPENSION', 'POIGNÉE',
-      'FOULÉES', 'TRIPLE SAUT', 'MONOPODAL', 'SOUPLESSE','36"-24"'
+      'FOULÉES', 'TRIPLE SAUT', 'MONOPODAL', 'SOUPLESSE'
     ];
 
     if (timeBasedTests.some(test => testName.includes(test))) return false;
@@ -285,21 +290,19 @@ const IndividualFitnessCard = () => {
     };
   };
 
-  // Configuration complète des catégories avec IDs EXACTS de votre base
-  const categories = {
+  // ============================================================================
+  // CONFIGURATION DYNAMIQUE DES CATÉGORIES
+  // ============================================================================
+
+  // Configuration de base des catégories (visuels et métadonnées)
+  const baseCategoryConfig = {
     ENDURANCE: {
       name: "Endurance",
       shortName: "END",
       icon: Activity,
       color: "#3b82f6",
       bgColor: "from-blue-50 to-blue-100",
-      borderColor: "border-blue-200",
-      tests: [
-        { id: 1, name: "DEMI-COOPER", shortName: "Cooper", unit: "M" },
-        { id: 2, name: "RECTANGLE MAGIQUE", shortName: "Rectangle", unit: "Points" },
-        { id: 20, name: "Test Cooper", shortName: "Cooper+", unit: "m" },
-        { id: 23, name: "Test 6ème - Test navette Luc Léger", shortName: "Luc Léger", unit: "palier" }
-      ]
+      borderColor: "border-blue-200"
     },
     FORCE: {
       name: "Force",
@@ -307,15 +310,7 @@ const IndividualFitnessCard = () => {
       icon: Target,
       color: "#ef4444",
       bgColor: "from-red-50 to-red-100",
-      borderColor: "border-red-200",
-      tests: [
-        { id: 3, name: "CHAISE DE KILLY", shortName: "Chaise", unit: "sec" },
-        { id: 4, name: "PLANCHE", shortName: "Planche", unit: "sec" },
-        { id: 5, name: "SUSPENSION BARRE", shortName: "Suspension", unit: "sec" },
-        { id: 6, name: "POIGNÉE DE MAIN", shortName: "Poignée", unit: "kg" },
-        { id: 15, name: "LANCER BALLON BASKET", shortName: "Lancer", unit: "cm" },
-        { id: 24, name: "Test 6ème - Saut en longueur sans élan", shortName: "Saut", unit: "cm" }
-      ]
+      borderColor: "border-red-200"
     },
     VITESSE: {
       name: "Vitesse",
@@ -323,11 +318,7 @@ const IndividualFitnessCard = () => {
       icon: Zap,
       color: "#eab308",
       bgColor: "from-yellow-50 to-yellow-100",
-      borderColor: "border-yellow-200",
-      tests: [
-        { id: 12, name: "SPRINTS 10 x 5 M", shortName: "Sprints", unit: "sec" },
-        { id: 25, name: "Test 6ème - 30 mètres plat", shortName: "30m", unit: "sec" }
-      ]
+      borderColor: "border-yellow-200"
     },
     COORDINATION: {
       name: "Coordination",
@@ -335,11 +326,7 @@ const IndividualFitnessCard = () => {
       icon: GitBranch,
       color: "#a855f7",
       bgColor: "from-purple-50 to-purple-100",
-      borderColor: "border-purple-200",
-      tests: [
-        { id: 13, name: "5 FOULÉES BONDISSANTES", shortName: "Foulées", unit: "cm" },
-        { id: 14, name: "TRIPLE SAUT SUR UN PIED", shortName: "Triple saut", unit: "cm" }
-      ]
+      borderColor: "border-purple-200"
     },
     EQUILIBRE: {
       name: "Équilibre",
@@ -347,11 +334,7 @@ const IndividualFitnessCard = () => {
       icon: Users,
       color: "#6366f1",
       bgColor: "from-indigo-50 to-indigo-100",
-      borderColor: "border-indigo-200",
-      tests: [
-        { id: 10, name: "ÉQUILIBRE MONOPODAL AU SOL", shortName: "Monopodal", unit: "sec" },
-        { id: 11, name: "FLAMINGO SUR POUTRE", shortName: "Flamingo", unit: "nombre de tentatives" }
-      ]
+      borderColor: "border-indigo-200"
     },
     SOUPLESSE: {
       name: "Souplesse",
@@ -359,11 +342,64 @@ const IndividualFitnessCard = () => {
       icon: Minimize2,
       color: "#22c55e",
       bgColor: "from-green-50 to-green-100",
-      borderColor: "border-green-200",
-      tests: [
-        { id: 8, name: "SOUPLESSE ÉPAULES", shortName: "Épaules", unit: "cm" },
-        { id: 9, name: "SOUPLESSE POSTÉRIEURE", shortName: "Postérieure", unit: "cm" }
-      ]
+      borderColor: "border-green-200"
+    }
+  };
+
+  // ============================================================================
+  // CHARGEMENT DYNAMIQUE DES TESTS
+  // ============================================================================
+
+  // Fonction pour charger tous les tests depuis la base de données
+  const loadAllTests = async () => {
+    try {
+      setTestsLoading(true);
+      console.log('🔄 Chargement dynamique des tests depuis Supabase...');
+
+      const { data: testsData, error } = await supabase
+        .from('tests')
+        .select('*')
+        .order('category', { ascending: true })
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+
+      console.log('✅ Tests chargés:', testsData?.length || 0);
+      setAllTests(testsData || []);
+
+      // Construire les catégories dynamiquement
+      const dynamicCategories = {};
+      
+      // Initialiser toutes les catégories avec leur configuration de base
+      Object.keys(baseCategoryConfig).forEach(categoryKey => {
+        dynamicCategories[categoryKey] = {
+          ...baseCategoryConfig[categoryKey],
+          tests: []
+        };
+      });
+
+      // Grouper les tests par catégorie
+      testsData?.forEach(test => {
+        if (dynamicCategories[test.category]) {
+          dynamicCategories[test.category].tests.push({
+            id: test.id,
+            name: test.name,
+            shortName: test.name.length > 15 ? test.name.substring(0, 12) + '...' : test.name,
+            unit: test.unit || ''
+          });
+        } else {
+          console.warn(`Catégorie inconnue: ${test.category} pour le test ${test.name}`);
+        }
+      });
+
+      setCategories(dynamicCategories);
+      console.log('✅ Catégories construites dynamiquement:', Object.keys(dynamicCategories));
+
+    } catch (err) {
+      console.error('❌ Erreur lors du chargement des tests:', err);
+      setError(`Erreur lors du chargement des tests: ${err.message}`);
+    } finally {
+      setTestsLoading(false);
     }
   };
 
@@ -491,9 +527,10 @@ const IndividualFitnessCard = () => {
     return advice;
   };
 
-  // Chargement des données - CORRIGÉ
+  // Chargement des données - MODIFIÉ POUR INCLURE LE CHARGEMENT DES TESTS
   useEffect(() => {
     if (selectedSchoolYear) {
+      loadAllTests(); // NOUVEAU : Charger les tests
       loadClassesAndCounts();
     }
   }, [selectedSchoolYear]);
@@ -593,14 +630,14 @@ const IndividualFitnessCard = () => {
     
     const categoryScores = {};
     
-    // Initialiser les catégories
+    // Initialiser les catégories avec les tests dynamiques
     Object.keys(categories).forEach(catKey => {
       categoryScores[catKey] = { 
         score: 0, 
         tests: [], 
         level: "Non évalué",
         testsCompleted: 0,
-        totalTests: categories[catKey].tests.length,
+        totalTests: categories[catKey]?.tests?.length || 0,
         completionPercentage: 0,
         hasInsufficientData: false,
         details: []
@@ -788,11 +825,27 @@ const IndividualFitnessCard = () => {
               <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
                 Notation dynamique
               </span>
+              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                Tests chargés dynamiquement
+              </span>
             </div>
           </div>
 
+          {/* Message si chargement des tests */}
+          {testsLoading && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center mb-6">
+              <RefreshCw className="animate-spin mx-auto text-blue-500 mb-4" size={32} />
+              <h3 className="text-lg font-semibold text-blue-800 mb-2">
+                Chargement des tests dynamique...
+              </h3>
+              <p className="text-blue-700">
+                Récupération de tous les tests depuis la base de données
+              </p>
+            </div>
+          )}
+
           {/* Message si pas de classes */}
-          {classes.length === 0 ? (
+          {!testsLoading && classes.length === 0 ? (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-12 text-center">
               <BookOpen size={64} className="mx-auto text-yellow-500 mb-6" />
               <h3 className="text-2xl font-semibold text-yellow-800 mb-4">
@@ -803,7 +856,7 @@ const IndividualFitnessCard = () => {
                 "Gestion des Classes" ou changez d'année scolaire.
               </p>
             </div>
-          ) : (
+          ) : !testsLoading && (
             // Grille des classes par niveau
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
               {Object.entries(classesByLevel).map(([level, levelClasses]) => (
@@ -851,6 +904,19 @@ const IndividualFitnessCard = () => {
                   </div>
                 )
               ))}
+            </div>
+          )}
+
+          {/* Informations sur les tests chargés */}
+          {!testsLoading && allTests.length > 0 && (
+            <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center space-x-2">
+                <CheckCircle className="text-green-600" size={16} />
+                <p className="text-sm text-green-700">
+                  <strong>{allTests.length} tests chargés dynamiquement</strong> depuis la base de données. 
+                  Tous les nouveaux tests apparaîtront automatiquement dans les fiches !
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -902,6 +968,9 @@ const IndividualFitnessCard = () => {
                       <span className="text-gray-400">•</span>
                       <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
                         Notation dynamique
+                      </span>
+                      <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                        Tests chargés dynamiquement
                       </span>
                     </div>
                   </div>
@@ -1047,6 +1116,9 @@ const IndividualFitnessCard = () => {
                     <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
                       Notation dynamique en temps réel
                     </span>
+                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                      Tests chargés dynamiquement
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1074,7 +1146,7 @@ const IndividualFitnessCard = () => {
                   score: 0, 
                   tests: [], 
                   testsCompleted: 0, 
-                  totalTests: category.tests.length,
+                  totalTests: category.tests?.length || 0,
                   details: []
                 };
                 
@@ -1111,7 +1183,7 @@ const IndividualFitnessCard = () => {
 
                     {/* Barres des tests individuels avec détails dynamiques */}
                     <div className="space-y-2 mb-4">
-                      {category.tests.map((test, index) => {
+                      {category.tests?.map((test, index) => {
                         const testDetail = result.details?.find(d => d.testName === test.name);
                         const hasResult = !!testDetail;
                         
@@ -1180,7 +1252,11 @@ const IndividualFitnessCard = () => {
                             )}
                           </div>
                         );
-                      })}
+                      }) || (
+                        <div className="text-center text-gray-500 text-sm py-4">
+                          Aucun test défini pour cette catégorie
+                        </div>
+                      )}
                     </div>
 
                     {/* Conseil personnalisé */}
@@ -1220,6 +1296,7 @@ const IndividualFitnessCard = () => {
             </p>
             <div className="mt-4 text-xs text-gray-500 bg-gray-50 p-3 rounded">
               <p><strong>Système de notation dynamique :</strong> Les scores sont calculés en temps réel selon les performances actuelles des élèves de même niveau et sexe de votre établissement. Cette approche garantit une évaluation toujours adaptée et équitable, avec un minimum de 5 élèves requis par barème.</p>
+              <p className="mt-2"><strong>Tests chargés dynamiquement :</strong> {allTests.length} tests chargés depuis la base de données. Tous les nouveaux tests apparaissent automatiquement !</p>
             </div>
           </div>
         </div>
@@ -1236,7 +1313,10 @@ const IndividualFitnessCard = () => {
           <h2 className="text-lg font-semibold text-red-700 mb-2">Erreur de chargement</h2>
           <p className="text-red-600 mb-4">{error}</p>
           <button
-            onClick={loadClassesAndCounts}
+            onClick={() => {
+              loadAllTests();
+              loadClassesAndCounts();
+            }}
             className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
           >
             Réessayer
@@ -1246,12 +1326,14 @@ const IndividualFitnessCard = () => {
     );
   }
 
-  if (loading && !selectedClass && !selectedStudent) {
+  if ((loading || testsLoading) && !selectedClass && !selectedStudent) {
     return (
       <div className="container mx-auto px-4 py-6">
         <div className="flex items-center justify-center py-12">
           <RefreshCw className="animate-spin text-blue-500 mr-3" size={24} />
-          <span className="text-gray-600">Chargement des classes...</span>
+          <span className="text-gray-600">
+            {testsLoading ? 'Chargement dynamique des tests...' : 'Chargement des classes...'}
+          </span>
         </div>
       </div>
     );
