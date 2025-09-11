@@ -1,4 +1,4 @@
-// src/components/ClassManagementSupabase.jsx - VERSION AVEC DASHBOARD ÉLÈVE
+// src/components/ClassManagementSupabase.jsx - VERSION AVEC DASHBOARD ÉLÈVE ET MODIFICATION
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, 
@@ -38,8 +38,8 @@ const ClassManagementSupabase = () => {
   const [selectedClass, setSelectedClass] = useState(null);
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
-  const [tests, setTests] = useState([]); // ← AJOUTÉ pour dashboard élève
-  const [results, setResults] = useState({}); // ← AJOUTÉ pour dashboard élève
+  const [tests, setTests] = useState([]);
+  const [results, setResults] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -50,9 +50,11 @@ const ClassManagementSupabase = () => {
 
   // États pour les modals
   const [showAddStudentModal, setShowAddStudentModal] = useState(false);
+  const [showEditStudentModal, setShowEditStudentModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showCreateClassModal, setShowCreateClassModal] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState(null); // ← AJOUTÉ pour dashboard élève
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [editingStudent, setEditingStudent] = useState(null);
 
   // États pour l'ajout d'élève
   const [newStudent, setNewStudent] = useState({
@@ -107,8 +109,6 @@ const ClassManagementSupabase = () => {
     return levelColorMap[level] || levelColorMap['6ème'];
   };
 
-  // ← NOUVELLES FONCTIONS POUR DASHBOARD ÉLÈVE
-  
   // Système de couleurs par catégorie de test
   const getCategoryColors = (category) => {
     const categoryColorMap = {
@@ -205,7 +205,7 @@ const ClassManagementSupabase = () => {
   useEffect(() => {
     if (selectedSchoolYear) {
       loadClasses();
-      loadTests(); // ← AJOUTÉ pour charger les tests
+      loadTests();
     }
   }, [selectedSchoolYear]);
 
@@ -213,11 +213,11 @@ const ClassManagementSupabase = () => {
   useEffect(() => {
     if (selectedClass && selectedSchoolYear) {
       loadStudents(selectedClass.id);
-      loadResults(selectedClass.id); // ← AJOUTÉ pour charger les résultats
+      loadResults(selectedClass.id);
     }
   }, [selectedClass, selectedSchoolYear]);
 
-  // ← NOUVELLE FONCTION pour charger les tests
+  // Fonction pour charger les tests
   const loadTests = async () => {
     try {
       const { data, error } = await supabase
@@ -236,7 +236,7 @@ const ClassManagementSupabase = () => {
     }
   };
 
-  // ← NOUVELLE FONCTION pour charger les résultats
+  // Fonction pour charger les résultats
   const loadResults = async (classId) => {
     try {
       const { data, error } = await supabase
@@ -419,6 +419,58 @@ const ClassManagementSupabase = () => {
     }
   };
 
+  // Fonction pour modifier un élève
+  const updateStudent = async () => {
+    try {
+      if (!editingStudent.firstName.trim() || !editingStudent.lastName.trim()) {
+        alert('Veuillez renseigner le prénom et le nom');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('students')
+        .update({
+          first_name: editingStudent.firstName.trim(),
+          last_name: editingStudent.lastName.trim().toUpperCase(),
+          birth_date: editingStudent.birthDate || null,
+          gender: editingStudent.gender || null
+        })
+        .eq('id', editingStudent.id)
+        .select();
+
+      if (error) {
+        console.error('Erreur lors de la modification de l\'élève:', error);
+        alert('Erreur lors de la modification de l\'élève');
+        return;
+      }
+
+      console.log('Élève modifié avec succès:', data);
+      
+      // Fermer la modal et réinitialiser
+      setShowEditStudentModal(false);
+      setEditingStudent(null);
+      
+      // Recharger les élèves
+      loadStudents(selectedClass.id);
+      
+    } catch (error) {
+      console.error('Erreur:', error);
+      alert('Erreur lors de la modification de l\'élève');
+    }
+  };
+
+  // Fonction pour ouvrir la modal d'édition
+  const openEditStudent = (student) => {
+    setEditingStudent({
+      id: student.id,
+      firstName: student.first_name,
+      lastName: student.last_name,
+      birthDate: student.birth_date || '',
+      gender: student.gender || ''
+    });
+    setShowEditStudentModal(true);
+  };
+
   // Fonction pour supprimer un élève
   const deleteStudent = async (studentId) => {
     if (!confirm('Êtes-vous sûr de vouloir supprimer cet élève ?')) {
@@ -523,7 +575,7 @@ const ClassManagementSupabase = () => {
     `${student.first_name} ${student.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // ← COMPOSANT DASHBOARD ÉLÈVE DÉPLACÉ ICI
+  // COMPOSANT DASHBOARD ÉLÈVE
   const StudentDetailView = ({ student }) => {
     if (!student) return null;
     
@@ -730,7 +782,7 @@ const ClassManagementSupabase = () => {
     );
   }
 
-  // ===== VUE LISTE DES CLASSES =====
+  // VUE LISTE DES CLASSES
   if (!selectedClass) {
     // Organiser les classes par niveau
     const classesByLevel = {
@@ -937,7 +989,7 @@ const ClassManagementSupabase = () => {
     );
   }
 
-  // ===== VUE DÉTAILLÉE - ÉLÈVES DE LA CLASSE =====
+  // VUE DÉTAILLÉE - ÉLÈVES DE LA CLASSE
   return (
     <div className="container mx-auto px-4 py-6">
       {/* Header classe avec année */}
@@ -1059,104 +1111,114 @@ const ClassManagementSupabase = () => {
           {viewMode === 'grid' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
               {filteredStudents.map((student) => {
-  const studentStats = getStudentStats(student);
-  
-  // Couleur de la jauge selon le pourcentage
-  const getProgressColor = (percentage) => {
-    if (percentage === 100) return 'bg-green-500';
-    if (percentage >= 75) return 'bg-green-400';
-    if (percentage >= 50) return 'bg-yellow-400';
-    if (percentage >= 25) return 'bg-orange-400';
-    return 'bg-red-400';
-  };
+                const studentStats = getStudentStats(student);
+                
+                // Couleur de la jauge selon le pourcentage
+                const getProgressColor = (percentage) => {
+                  if (percentage === 100) return 'bg-green-500';
+                  if (percentage >= 75) return 'bg-green-400';
+                  if (percentage >= 50) return 'bg-yellow-400';
+                  if (percentage >= 25) return 'bg-orange-400';
+                  return 'bg-red-400';
+                };
 
-  return (
-    <div
-    key={student.id}
-    className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200 p-4"
-  >
-    {/* Nom et prénom de l'élève */}
-    <div className="text-center mb-3">
-      <div className="w-12 h-12 mx-auto bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-lg mb-2">
-        {student.first_name.charAt(0)}{student.last_name.charAt(0)}
-      </div>
-      <div className="font-bold text-gray-800 text-sm">
-        {student.last_name}
-      </div>
-      <div className="font-medium text-gray-600 text-sm">
-        {student.first_name}
-      </div>
-    </div>
-  
-    {/* Jauge de progression des tests */}
-    <div className="mb-3">
-  <div className="flex items-center justify-between mb-1">
-    <span className="text-xs font-medium text-gray-700">
-      {studentStats.completed}/{studentStats.total} tests réalisés
-    </span>
-    <span className="text-xs font-bold text-gray-600">
-      {studentStats.percentage}%
-    </span>
-  </div>
-  <div className="w-full bg-gray-200 rounded-full h-2">
-    <div 
-      className={`h-2 rounded-full transition-all duration-500 ${getProgressColor(studentStats.percentage)}`}
-      style={{ width: `${studentStats.percentage}%` }}
-    ></div>
-  </div>
-</div>
-
-                  {/* Informations */}
-                  <div className="space-y-2">
-                    {/* Date de naissance */}
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Calendar size={14} className="mr-2 flex-shrink-0" />
-                      <span className="truncate">
-                        {formatBirthDate(student.birth_date)}
-                      </span>
+                return (
+                  <div
+                    key={student.id}
+                    className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200 p-4"
+                  >
+                    {/* Nom et prénom de l'élève */}
+                    <div className="text-center mb-3">
+                      <div className="w-12 h-12 mx-auto bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-lg mb-2">
+                        {student.first_name.charAt(0)}{student.last_name.charAt(0)}
+                      </div>
+                      <div className="font-bold text-gray-800 text-sm">
+                        {student.last_name}
+                      </div>
+                      <div className="font-medium text-gray-600 text-sm">
+                        {student.first_name}
+                      </div>
+                    </div>
+                
+                    {/* Jauge de progression des tests */}
+                    <div className="mb-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-gray-700">
+                          {studentStats.completed}/{studentStats.total} tests réalisés
+                        </span>
+                        <span className="text-xs font-bold text-gray-600">
+                          {studentStats.percentage}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className={`h-2 rounded-full transition-all duration-500 ${getProgressColor(studentStats.percentage)}`}
+                          style={{ width: `${studentStats.percentage}%` }}
+                        ></div>
+                      </div>
                     </div>
 
-                    {/* Genre */}
-                    {student.gender && (
-                      <div className="flex items-center">
-                        <div className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${getGenderColor(student.gender)}`}>
-                          {student.gender === 'M' ? 'Garçon' : 
-                           student.gender === 'F' ? 'Fille' : 
-                           student.gender}
+                    {/* Informations */}
+                    <div className="space-y-2">
+                      {/* Date de naissance */}
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Calendar size={14} className="mr-2 flex-shrink-0" />
+                        <span className="truncate">
+                          {formatBirthDate(student.birth_date)}
+                        </span>
+                      </div>
+
+                      {/* Genre */}
+                      {student.gender && (
+                        <div className="flex items-center">
+                          <div className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${getGenderColor(student.gender)}`}>
+                            {student.gender === 'M' ? 'Garçon' : 
+                             student.gender === 'F' ? 'Fille' : 
+                             student.gender}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Année scolaire */}
+                      <div className="flex items-center text-sm">
+                        <div className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                          {student.school_year || selectedSchoolYear}
                         </div>
                       </div>
-                    )}
+                    </div>
 
-                    {/* Année scolaire */}
-                    <div className="flex items-center text-sm">
-                      <div className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
-                        {student.school_year || selectedSchoolYear}
-                      </div>
+                    {/* Actions */}
+                    <div className="flex justify-between mt-4 pt-3 border-t border-gray-100">
+                      {/* Bouton voir détail */}
+                      <button
+                        onClick={() => setSelectedStudent(student)}
+                        className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-md transition-colors"
+                        title="Voir les résultats de l'élève"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      
+                      {/* Bouton modifier */}
+                      <button
+                        onClick={() => openEditStudent(student)}
+                        className="p-2 text-orange-600 hover:text-orange-900 hover:bg-orange-50 rounded-md transition-colors"
+                        title="Modifier l'élève"
+                      >
+                        <Edit3 size={16} />
+                      </button>
+                      
+                      {/* Bouton supprimer */}
+                      <button
+                        onClick={() => deleteStudent(student.id)}
+                        className="p-2 text-red-600 hover:text-red-900 hover:bg-red-50 rounded-md transition-colors"
+                        title="Supprimer l'élève"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
                   </div>
-
-                  {/* Actions */}
-                  <div className="flex justify-between mt-4 pt-3 border-t border-gray-100">
-                    {/* ← BOUTON VOIR DÉTAIL AJOUTÉ ICI */}
-                    <button
-                      onClick={() => setSelectedStudent(student)}
-                      className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-md transition-colors"
-                      title="Voir les résultats de l'élève"
-                    >
-                      <Eye size={16} />
-                    </button>
-                    
-                    <button
-                      onClick={() => deleteStudent(student.id)}
-                      className="p-2 text-red-600 hover:text-red-900 hover:bg-red-50 rounded-md transition-colors"
-                      title="Supprimer l'élève"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-             );
-            })}
+                );
+              })}
             </div>
           )}
 
@@ -1227,14 +1289,25 @@ const ClassManagementSupabase = () => {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          {/* ← BOUTON VOIR DÉTAIL AJOUTÉ ICI AUSSI */}
+                          {/* Bouton voir détail */}
                           <button
                             onClick={() => setSelectedStudent(student)}
-                            className="text-blue-600 hover:text-blue-900 mr-4"
+                            className="text-blue-600 hover:text-blue-900 mr-3"
                             title="Voir les résultats"
                           >
                             <Eye size={16} />
                           </button>
+                          
+                          {/* Bouton modifier */}
+                          <button
+                            onClick={() => openEditStudent(student)}
+                            className="text-orange-600 hover:text-orange-900 mr-3"
+                            title="Modifier"
+                          >
+                            <Edit3 size={16} />
+                          </button>
+                          
+                          {/* Bouton supprimer */}
                           <button
                             onClick={() => deleteStudent(student.id)}
                             className="text-red-600 hover:text-red-900"
@@ -1253,7 +1326,7 @@ const ClassManagementSupabase = () => {
         </>
       )}
 
-      {/* ← DASHBOARD ÉLÈVE AFFICHÉ ICI */}
+      {/* Dashboard élève */}
       {selectedStudent && <StudentDetailView student={selectedStudent} />}
 
       {/* Modal Ajouter Élève */}
@@ -1342,6 +1415,98 @@ const ClassManagementSupabase = () => {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
               >
                 Ajouter l'élève
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Modifier Élève */}
+      {showEditStudentModal && editingStudent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">
+              Modifier l'élève
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Prénom *
+                </label>
+                <input
+                  type="text"
+                  value={editingStudent.firstName}
+                  onChange={(e) => setEditingStudent(prev => ({ ...prev, firstName: e.target.value }))}
+                  placeholder="Prénom de l'élève"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                  autoFocus
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nom *
+                </label>
+                <input
+                  type="text"
+                  value={editingStudent.lastName}
+                  onChange={(e) => setEditingStudent(prev => ({ ...prev, lastName: e.target.value }))}
+                  placeholder="Nom de l'élève"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Date de naissance
+                </label>
+                <input
+                  type="date"
+                  value={editingStudent.birthDate}
+                  onChange={(e) => setEditingStudent(prev => ({ ...prev, birthDate: e.target.value }))}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Genre
+                </label>
+                <select
+                  value={editingStudent.gender}
+                  onChange={(e) => setEditingStudent(prev => ({ ...prev, gender: e.target.value }))}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                >
+                  <option value="">Sélectionner</option>
+                  <option value="M">Garçon</option>
+                  <option value="F">Fille</option>
+                </select>
+              </div>
+              
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                <p className="text-orange-700 text-sm">
+                  Modification de l'élève dans la classe <strong>{selectedClass.name}</strong> pour l'année <strong>{selectedSchoolYear}</strong>
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowEditStudentModal(false);
+                  setEditingStudent(null);
+                }}
+                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={updateStudent}
+                disabled={!editingStudent.firstName.trim() || !editingStudent.lastName.trim()}
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              >
+                Modifier l'élève
               </button>
             </div>
           </div>
