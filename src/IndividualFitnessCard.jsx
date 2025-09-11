@@ -1,4 +1,4 @@
-// IndividualFitnessCard.jsx - VERSION AVEC CHARGEMENT DYNAMIQUE DES TESTS ET CORRECTION 36"-24"
+// IndividualFitnessCard.jsx - VERSION COMPLÈTE AVEC TOUTES LES CORRECTIONS
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
@@ -539,6 +539,421 @@ const IndividualFitnessCard = () => {
     return advice;
   };
 
+  // Fonction pour obtenir des conseils courts pour le PDF
+  const getCategoryAdviceShort = (category, score) => {
+    const shortAdvice = {
+      ENDURANCE: {
+        excellent: "Continue cardio 3-4x/sem.",
+        bon: "Augmente durée progressivement.",
+        correct: "Jogging léger 2-3x/sem.",
+        faible: "Marche, escaliers, course légère."
+      },
+      FORCE: {
+        excellent: "Maintiens avec exercices variés.",
+        bon: "Ajoute renforcement.",
+        correct: "Pompes, gainage, squats.",
+        faible: "Gainage facile, pompes inclinées."
+      },
+      VITESSE: {
+        excellent: "Continue réactivité, sprints.",
+        bon: "Travaille agilité.",
+        correct: "Petites accélérations.",
+        faible: "Coordination simple."
+      },
+      COORDINATION: {
+        excellent: "Activités techniques variées.",
+        bon: "Nouveaux mouvements complexes.",
+        correct: "Équilibre dynamique.",
+        faible: "Marche ligne, équilibres."
+      },
+      EQUILIBRE: {
+        excellent: "Défis équilibre complexes.",
+        bon: "Yeux fermés, surfaces instables.",
+        correct: "Équilibre statique/dynamique.",
+        faible: "Un pied, marche ligne."
+      },
+      SOUPLESSE: {
+        excellent: "Étirements quotidiens.",
+        bon: "Étirements après effort.",
+        correct: "10-15 min étirements/jour.",
+        faible: "Étirements doux 5-10 min."
+      }
+    };
+
+    let level;
+    if (score >= 85) level = 'excellent';
+    else if (score >= 70) level = 'bon';
+    else if (score >= 55) level = 'correct';
+    else level = 'faible';
+
+    return shortAdvice[category]?.[level] || "Continue tes efforts !";
+  };
+
+  // ============================================================================
+  // FONCTION D'EXPORT PDF OPTIMISÉE A4
+  // ============================================================================
+
+  // Fonction pour générer le HTML optimisé A4
+  const generateOptimizedHTML = (student, results, globalScore) => {
+    const currentDate = new Date().toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit', 
+      year: 'numeric'
+    });
+
+    const colors = getLevelColors(student.classes.level);
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Fiche EPS - ${student.first_name} ${student.last_name}</title>
+    <style>
+        /* Configuration page A4 optimisée */
+        @page {
+            size: A4;
+            margin: 10mm;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            font-size: 9px;
+            line-height: 1.2;
+            color: #333;
+            background: white;
+        }
+        
+        /* Header compact */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 2px solid #4F46E5;
+            margin-bottom: 12px;
+        }
+        
+        .student-info h1 {
+            font-size: 18px;
+            color: #1f2937;
+            margin-bottom: 2px;
+        }
+        
+        .student-details {
+            font-size: 8px;
+            color: #6b7280;
+        }
+        
+        .global-score {
+            text-align: center;
+            padding: 8px;
+            background: #f8fafc;
+            border-radius: 6px;
+            min-width: 80px;
+        }
+        
+        .global-score .score {
+            font-size: 24px;
+            font-weight: bold;
+            color: ${getScoreColor(globalScore)};
+        }
+        
+        .global-score .label {
+            font-size: 7px;
+            color: #6b7280;
+            text-transform: uppercase;
+        }
+        
+        /* Grille 2x3 pour les catégories */
+        .categories-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .category-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 8px;
+            background: #fafafa;
+        }
+        
+        .category-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        
+        .category-title {
+            font-size: 10px;
+            font-weight: bold;
+            color: #1f2937;
+        }
+        
+        .category-score {
+            font-size: 16px;
+            font-weight: bold;
+            min-width: 40px;
+            text-align: center;
+        }
+        
+        .category-level {
+            font-size: 6px;
+            color: #6b7280;
+            text-align: right;
+        }
+        
+        /* Tests compacts */
+        .tests-list {
+            margin-bottom: 6px;
+        }
+        
+        .test-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3px;
+            padding: 2px 0;
+        }
+        
+        .test-name {
+            font-size: 7px;
+            color: #374151;
+            flex: 1;
+        }
+        
+        .test-value {
+            font-size: 7px;
+            color: #1f2937;
+            font-weight: 500;
+            margin-left: 4px;
+        }
+        
+        .test-score-bar {
+            width: 30px;
+            height: 3px;
+            background: #e5e7eb;
+            border-radius: 2px;
+            margin-left: 4px;
+            position: relative;
+        }
+        
+        .test-score-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+        
+        /* Couleurs par catégorie */
+        .endurance { color: #3b82f6; }
+        .force { color: #ef4444; }
+        .vitesse { color: #eab308; }
+        .coordination { color: #a855f7; }
+        .equilibre { color: #6366f1; }
+        .souplesse { color: #22c55e; }
+        
+        /* Conseils compacts */
+        .advice-section {
+            background: #f1f5f9;
+            border-radius: 4px;
+            padding: 4px;
+            margin-top: 4px;
+        }
+        
+        .advice-title {
+            font-size: 6px;
+            font-weight: bold;
+            color: #334155;
+            margin-bottom: 2px;
+        }
+        
+        .advice-text {
+            font-size: 6px;
+            color: #475569;
+            line-height: 1.3;
+        }
+        
+        /* Footer compact */
+        .footer {
+            margin-top: 10px;
+            padding-top: 6px;
+            border-top: 1px solid #e5e7eb;
+            text-align: center;
+            page-break-inside: avoid;
+        }
+        
+        .footer-title {
+            font-size: 10px;
+            font-weight: bold;
+            color: #1f2937;
+            margin-bottom: 4px;
+        }
+        
+        .footer-text {
+            font-size: 7px;
+            color: #6b7280;
+            line-height: 1.4;
+        }
+        
+        .footer-meta {
+            font-size: 6px;
+            color: #9ca3af;
+            margin-top: 4px;
+        }
+        
+        /* Utilitaires */
+        .text-center { text-align: center; }
+        .font-bold { font-weight: bold; }
+        .no-break { page-break-inside: avoid; }
+        
+        /* Masquer à l'impression */
+        @media print {
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header compact -->
+    <div class="header no-break">
+        <div class="student-info">
+            <h1>${student.first_name} ${student.last_name}</h1>
+            <div class="student-details">
+                ${student.classes.level}${student.classes.name} • ${student.gender === 'M' ? 'Garçon' : 'Fille'} • 
+                Année ${selectedSchoolYear} • Collège Yves du Manoir
+            </div>
+        </div>
+        <div class="global-score">
+            <div class="score">${globalScore}/100</div>
+            <div class="label">Score Global</div>
+        </div>
+    </div>
+    
+    <!-- Grille des catégories optimisée 2x3 -->
+    <div class="categories-grid">
+        ${Object.entries(categories).map(([key, category]) => {
+          const result = results?.[key] || { 
+            score: 0, 
+            tests: [], 
+            testsCompleted: 0, 
+            totalTests: category.tests?.length || 0,
+            details: [],
+            level: "Non évalué"
+          };
+          
+          const categoryClass = key.toLowerCase();
+          const scoreColor = getEvaluationColor(result.score);
+          
+          return `
+          <div class="category-card no-break">
+            <div class="category-header">
+              <div>
+                <div class="category-title ${categoryClass}">${category.name}</div>
+                <div class="category-level">${result.testsCompleted}/${result.totalTests} • ${result.level}</div>
+              </div>
+              <div class="category-score" style="color: ${scoreColor}">
+                ${result.score}/100
+              </div>
+            </div>
+            
+            <div class="tests-list">
+              ${category.tests?.slice(0, 4).map(test => {
+                const testDetail = result.details?.find(d => d.testName === test.name);
+                const hasResult = !!testDetail;
+                let testScore = 0;
+                
+                if (hasResult && testDetail.result && testDetail.result.method !== "echantillon_insuffisant") {
+                  testScore = testDetail.result.score || 0;
+                }
+                
+                const testColor = hasResult && testScore > 0 ? getEvaluationColor(testScore) : "#d1d5db";
+                
+                return `
+                <div class="test-item">
+                  <span class="test-name">${test.shortName}</span>
+                  <span class="test-value">${hasResult ? `${testDetail.value} ${testDetail.unit}` : '-'}</span>
+                  <div class="test-score-bar">
+                    <div class="test-score-fill" style="width: ${testScore}%; background-color: ${testColor};"></div>
+                  </div>
+                </div>
+                `;
+              }).join('') || '<div class="test-item"><span class="test-name">Aucun test</span></div>'}
+            </div>
+            
+            <div class="advice-section">
+              <div class="advice-title">Conseil</div>
+              <div class="advice-text">
+                ${getCategoryAdviceShort(key, result.score)}
+              </div>
+            </div>
+          </div>
+          `;
+        }).join('')}
+    </div>
+    
+    <!-- Footer compact -->
+    <div class="footer no-break">
+        <div class="footer-title">
+            Recommandation pour ${student.first_name}
+        </div>
+        <div class="footer-text">
+            ${globalScore >= 85 ? 
+              "Excellente condition physique ! Maintiens ce niveau avec 60 min d'activité quotidienne (OMS)." :
+            globalScore >= 70 ? 
+              "Bon niveau ! Quelques efforts supplémentaires pour atteindre 60 min/jour (OMS)." :
+            globalScore >= 55 ? 
+              "Bonnes bases ! Avec de la régularité, tu atteindras les 60 min recommandées." :
+              "Chaque effort compte ! Commence progressivement vers 60 min/jour."}
+        </div>
+        <div class="footer-meta">
+            Système de notation dynamique • Tests chargés automatiquement • 
+            Généré le ${currentDate} • EPS Tracker YDM
+        </div>
+    </div>
+</body>
+</html>
+    `;
+  };
+
+  // Fonction d'export PDF optimisée
+  const exportToPDF = () => {
+    if (!selectedStudent || !studentResults) {
+      alert('Aucune donnée à exporter pour cet élève.');
+      return;
+    }
+
+    // Préparer les données pour l'export
+    const globalScore = (() => {
+      const categoriesWithResults = Object.values(studentResults).filter(cat => cat.score > 0);
+      if (categoriesWithResults.length === 0) return 0;
+      return Math.round(categoriesWithResults.reduce((acc, cat) => acc + cat.score, 0) / categoriesWithResults.length);
+    })();
+
+    // Générer le HTML optimisé pour A4
+    const printContent = generateOptimizedHTML(selectedStudent, studentResults, globalScore);
+    
+    // Créer et ouvrir la fenêtre d'impression
+    const printWindow = window.open('', '_blank');
+    printWindow.document.open();
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 250);
+    };
+  };
+
   // Chargement des données - MODIFIÉ POUR INCLURE LE CHARGEMENT DES TESTS
   useEffect(() => {
     if (selectedSchoolYear) {
@@ -794,13 +1209,6 @@ const IndividualFitnessCard = () => {
         </div>
       </div>
     );
-  };
-
-  // Fonction d'export PDF
-  const exportToPDF = () => {
-    if (typeof window !== 'undefined') {
-      window.print();
-    }
   };
 
   // Vue de sélection des classes (inspirée de ResultsEntrySupabase)
