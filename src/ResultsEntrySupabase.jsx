@@ -1,4 +1,4 @@
-// src/components/ResultsEntrySupabase.jsx - VERSION SANS DASHBOARD ÉLÈVE
+// src/components/ResultsEntrySupabase.jsx - VERSION AVEC NETTOYAGE DES VALEURS NULL
 import React, { useState, useEffect } from 'react';
 import { 
   Users, 
@@ -18,7 +18,8 @@ import {
   TrendingUp,
   Target,
   Clock,
-  Calendar
+  Calendar,
+  Trash2
 } from 'lucide-react';
 
 // UTILISE L'INSTANCE CENTRALISÉE - PAS DE CRÉATION D'INSTANCE
@@ -305,33 +306,99 @@ const ResultsEntrySupabase = () => {
     setEditStatus('result');
   };
 
-  // Fonction pour nettoyer toutes les valeurs "null" de la classe
-const cleanAllNullValues = async () => {
-  if (!confirm('Supprimer toutes les valeurs "null" de cette classe ?')) return;
+  // NOUVELLES FONCTIONS DE NETTOYAGE DES VALEURS NULL
   
-  try {
-    setSaving(true);
-    
-    const studentIds = students.map(s => s.id);
-    
-    const { data: nullResults, error: fetchError } = await supabase
-      .from('results')
-      .select('*')
-      .in('student_id', studentIds)
-      .eq('school_year', selectedSchoolYear)
-      .or('value.eq.null,value.eq.NULL,value.ilike.%null%');
-    
-    if (nullResults?.length > 0) {
-      await supabase.from('results').delete().in('id', nullResults.map(r => r.id));
-      loadClassData(selectedClass.id);
-      alert(`${nullResults.length} valeur(s) "null" supprimée(s) !`);
+  // Fonction pour nettoyer les valeurs "null" d'un élève spécifique
+  const cleanNullValues = async (studentId) => {
+    try {
+      setSaving(true);
+      
+      // Récupérer tous les résultats de cet élève qui contiennent "null"
+      const { data: nullResults, error: fetchError } = await supabase
+        .from('results')
+        .select('*')
+        .eq('student_id', studentId)
+        .eq('school_year', selectedSchoolYear)
+        .or('value.eq.null,value.eq.NULL,value.ilike.%null%');
+      
+      if (fetchError) throw fetchError;
+      
+      if (nullResults && nullResults.length > 0) {
+        // Supprimer ces résultats de la base de données
+        const { error: deleteError } = await supabase
+          .from('results')
+          .delete()
+          .in('id', nullResults.map(r => r.id));
+        
+        if (deleteError) throw deleteError;
+        
+        // Mettre à jour l'état local
+        const newResults = { ...results };
+        nullResults.forEach(result => {
+          const key = `${result.student_id}-${result.test_id}`;
+          delete newResults[key];
+        });
+        setResults(newResults);
+        
+        alert(`${nullResults.length} valeur(s) "null" supprimée(s) avec succès !`);
+      } else {
+        alert('Aucune valeur "null" trouvée pour cet élève.');
+      }
+      
+    } catch (error) {
+      console.error('Erreur lors du nettoyage:', error);
+      alert('Erreur lors du nettoyage des valeurs null');
+    } finally {
+      setSaving(false);
     }
-  } catch (error) {
-    alert('Erreur lors du nettoyage');
-  } finally {
-    setSaving(false);
-  }
-};
+  };
+
+  // Fonction pour nettoyer toutes les valeurs "null" de la classe
+  const cleanAllNullValues = async () => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer toutes les valeurs "null" de cette classe ?')) {
+      return;
+    }
+    
+    try {
+      setSaving(true);
+      
+      // Récupérer tous les IDs des élèves de cette classe
+      const studentIds = students.map(s => s.id);
+      
+      // Récupérer tous les résultats "null" de cette classe
+      const { data: nullResults, error: fetchError } = await supabase
+        .from('results')
+        .select('*')
+        .in('student_id', studentIds)
+        .eq('school_year', selectedSchoolYear)
+        .or('value.eq.null,value.eq.NULL,value.ilike.%null%');
+      
+      if (fetchError) throw fetchError;
+      
+      if (nullResults && nullResults.length > 0) {
+        // Supprimer ces résultats
+        const { error: deleteError } = await supabase
+          .from('results')
+          .delete()
+          .in('id', nullResults.map(r => r.id));
+        
+        if (deleteError) throw deleteError;
+        
+        // Recharger les données
+        loadClassData(selectedClass.id);
+        
+        alert(`${nullResults.length} valeur(s) "null" supprimée(s) avec succès !`);
+      } else {
+        alert('Aucune valeur "null" trouvée dans cette classe.');
+      }
+      
+    } catch (error) {
+      console.error('Erreur lors du nettoyage:', error);
+      alert('Erreur lors du nettoyage des valeurs null');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const refreshData = () => {
     if (selectedClass) {
@@ -556,7 +623,7 @@ const cleanAllNullValues = async () => {
     );
   };
 
-  // Vue détaillée d'une classe - SIMPLIFIÉE SANS DASHBOARD
+  // Vue détaillée d'une classe - AVEC BOUTONS DE NETTOYAGE
   const ClassDetailView = () => {
     const colors = getLevelColors(selectedClass.level);
     const stats = getCompletionStats();
@@ -603,6 +670,18 @@ const cleanAllNullValues = async () => {
                   <div className="text-lg font-bold">{stats.percentage}%</div>
                   <div className="text-sm opacity-90">{stats.completed}/{stats.total} complétés</div>
                 </div>
+                
+                {/* NOUVEAU BOUTON DE NETTOYAGE */}
+                <button 
+                  onClick={cleanAllNullValues}
+                  disabled={saving}
+                  className="flex items-center space-x-2 px-4 py-2 bg-orange-500 bg-opacity-80 rounded-lg hover:bg-opacity-100 transition-colors disabled:bg-gray-400"
+                  title="Supprimer toutes les valeurs 'null' de cette classe"
+                >
+                  <Trash2 size={16} />
+                  <span>Nettoyer les "null"</span>
+                </button>
+                
                 <button 
                   onClick={refreshData}
                   className="flex items-center space-x-2 px-4 py-2 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30"
@@ -642,7 +721,7 @@ const cleanAllNullValues = async () => {
               <Activity className="text-blue-600" size={16} />
               <p className="text-sm text-blue-700">
                 <strong>Interface de saisie :</strong> Cliquez sur une cellule pour saisir un résultat, marquer un élève absent ou dispensé. 
-                Pour consulter les détails d'un élève, utilisez la section "Gestion des Classes".
+                Utilisez le bouton orange "Nettoyer les null" pour supprimer automatiquement toutes les valeurs erronées.
               </p>
             </div>
           </div>
@@ -690,7 +769,7 @@ const cleanAllNullValues = async () => {
                       return (
                         <tr key={student.id} className="hover:bg-gray-50 border-b">
                           <td className="p-4 border-r border-gray-300 bg-gray-50">
-                            <div className="flex items-center">
+                            <div className="flex items-center justify-between">
                               <div>
                                 <div className="font-bold text-gray-800 text-lg">
                                   {student.last_name}
@@ -699,6 +778,18 @@ const cleanAllNullValues = async () => {
                                   {student.first_name}
                                 </div>
                               </div>
+                              {/* BOUTON DE NETTOYAGE INDIVIDUEL */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  cleanNullValues(student.id);
+                                }}
+                                disabled={saving}
+                                className="ml-2 p-1 text-orange-600 hover:text-orange-800 hover:bg-orange-100 rounded disabled:text-gray-400"
+                                title="Nettoyer les valeurs null de cet élève"
+                              >
+                                <X size={14} />
+                              </button>
                             </div>
                           </td>
                           
@@ -799,7 +890,7 @@ const cleanAllNullValues = async () => {
               <Calendar size={12} />
               <span>
                 <strong>Interface de saisie :</strong> Optimisée pour la saisie rapide des résultats • 
-                Cliquez sur une cellule pour modifier • Pour voir les détails d'un élève, utilisez "Gestion des Classes"
+                Cliquez sur une cellule pour modifier • Bouton orange pour nettoyer les valeurs "null"
               </span>
             </div>
           </div>
