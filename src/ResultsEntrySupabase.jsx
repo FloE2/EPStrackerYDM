@@ -685,17 +685,6 @@ const ResultsEntrySupabase = () => {
                   <div className="text-sm opacity-90">{stats.completed}/{stats.total} complétés</div>
                 </div>
                 
-                {/* NOUVEAU BOUTON DE NETTOYAGE */}
-                <button 
-                  onClick={cleanAllNullValues}
-                  disabled={saving}
-                  className="flex items-center space-x-2 px-4 py-2 bg-orange-500 bg-opacity-80 rounded-lg hover:bg-opacity-100 transition-colors disabled:bg-gray-400"
-                  title="Supprimer toutes les valeurs 'null' de cette classe"
-                >
-                  <Trash2 size={16} />
-                  <span>Nettoyer les "null"</span>
-                </button>
-                
                 <button 
                   onClick={refreshData}
                   className="flex items-center space-x-2 px-4 py-2 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30"
