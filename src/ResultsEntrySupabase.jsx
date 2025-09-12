@@ -1,4 +1,4 @@
-// src/components/ResultsEntrySupabase.jsx - VERSION AVEC NETTOYAGE DES VALEURS NULL
+// src/components/ResultsEntrySupabase.jsx - VERSION AVEC NETTOYAGE DES VALEURS NULL + COLONNES/LIGNES FIGÉES
 import React, { useState, useEffect } from 'react';
 import { 
   Users, 
@@ -637,7 +637,7 @@ const ResultsEntrySupabase = () => {
     );
   };
 
-  // Vue détaillée d'une classe - AVEC BOUTONS DE NETTOYAGE
+  // Vue détaillée d'une classe - AVEC TABLEAU FIGÉ
   const ClassDetailView = () => {
     const colors = getLevelColors(selectedClass.level);
     const stats = getCompletionStats();
@@ -699,7 +699,7 @@ const ResultsEntrySupabase = () => {
 
         {/* Contenu */}
         <div className="max-w-7xl mx-auto px-6 py-6">
-          {/* Barre de recherche */}
+          {/* Barre de recherche et bouton nettoyage global */}
           <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
             <div className="flex items-center space-x-4">
               <div className="flex-1 relative">
@@ -715,6 +715,15 @@ const ResultsEntrySupabase = () => {
               <div className={`px-4 py-3 ${colors.bg} ${colors.text} rounded-lg border ${colors.border} font-medium`}>
                 {filteredStudents.length} élève{filteredStudents.length !== 1 ? 's' : ''} • {tests.length} tests
               </div>
+              {/* BOUTON NETTOYAGE GLOBAL */}
+              <button
+                onClick={cleanAllNullValues}
+                disabled={saving}
+                className="flex items-center space-x-2 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-400 transition-colors"
+              >
+                <Trash2 size={18} />
+                <span>Nettoyer tous les "null"</span>
+              </button>
             </div>
           </div>
 
@@ -725,11 +734,12 @@ const ResultsEntrySupabase = () => {
               <p className="text-sm text-blue-700">
                 <strong>Interface de saisie :</strong> Cliquez sur une cellule pour saisir un résultat, marquer un élève absent ou dispensé. 
                 Utilisez le bouton orange "Nettoyer les null" pour supprimer automatiquement toutes les valeurs erronées.
+                La première ligne (tests) et la première colonne (élèves) sont figées pour faciliter la navigation.
               </p>
             </div>
           </div>
 
-          {/* Tableau des résultats */}
+          {/* Tableau des résultats avec colonnes/lignes figées */}
           {filteredStudents.length === 0 ? (
             <div className="bg-white rounded-lg shadow-sm p-12 text-center">
               <Search className="mx-auto text-gray-400 mb-6" size={80} />
@@ -738,15 +748,33 @@ const ResultsEntrySupabase = () => {
             </div>
           ) : (
             <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
+              {/* CSS personnalisé pour les colonnes et lignes figées */}
+              <style jsx>{`
+                .sticky-shadow-right {
+                  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+                }
+                .sticky-shadow-bottom {
+                  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                }
+                .sticky-corner {
+                  box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+                }
+              `}</style>
+              <div className="overflow-auto max-h-[600px]">
                 <table className="w-full">
-                  <thead className={`${colors.bg} sticky top-0`}>
+                  {/* En-tête figé */}
+                  <thead className="sticky top-0 z-20">
                     <tr>
-                      <th className="p-4 text-left font-bold text-gray-800 border-r border-gray-300 min-w-[200px]">
-                        Élève
+                      {/* Cellule coin supérieur gauche - figée en haut et à gauche */}
+                      <th className={`p-4 text-left font-bold text-gray-800 border-r-2 border-b-2 border-gray-400 min-w-[200px] sticky left-0 z-40 ${colors.bg} sticky-corner`}>
+                        <div className="flex items-center space-x-2">
+                          <Users size={18} />
+                          <span>Élève</span>
+                        </div>
                       </th>
+                      {/* Colonnes des tests - figées en haut seulement */}
                       {tests.map(test => (
-                        <th key={test.id} className="p-3 text-center font-medium text-gray-700 border-r border-gray-300 min-w-[120px]">
+                        <th key={test.id} className={`p-3 text-center font-medium text-gray-700 border-r border-b-2 border-gray-400 min-w-[120px] ${colors.bg} sticky-shadow-bottom`}>
                           <div className="space-y-1">
                             <div className="text-sm font-bold">{test.name}</div>
                             <div className="text-xs text-gray-500">({test.unit})</div>
@@ -756,14 +784,18 @@ const ResultsEntrySupabase = () => {
                           </div>
                         </th>
                       ))}
-                      <th className="p-4 text-center font-medium text-gray-700 min-w-[100px]">
-                        Progression
+                      {/* Colonne progression - figée en haut */}
+                      <th className={`p-4 text-center font-medium text-gray-700 min-w-[100px] border-b-2 border-gray-400 ${colors.bg} sticky-shadow-bottom`}>
+                        <div className="flex items-center justify-center space-x-1">
+                          <TrendingUp size={16} />
+                          <span>Progression</span>
+                        </div>
                       </th>
                     </tr>
                   </thead>
                   
                   <tbody>
-                    {filteredStudents.map((student) => {
+                    {filteredStudents.map((student, index) => {
                       const completedTests = tests.filter(test => 
                         getResultStatus(student.id, test.id).status !== 'empty'
                       ).length;
@@ -771,7 +803,8 @@ const ResultsEntrySupabase = () => {
                       
                       return (
                         <tr key={student.id} className="hover:bg-gray-50 border-b">
-                          <td className="p-4 border-r border-gray-300 bg-gray-50">
+                          {/* Cellule nom élève - figée à gauche */}
+                          <td className="p-4 border-r-2 border-gray-300 bg-gray-50 sticky left-0 z-10 sticky-shadow-right">
                             <div className="flex items-center justify-between">
                               <div>
                                 <div className="font-bold text-gray-800 text-lg">
@@ -796,11 +829,13 @@ const ResultsEntrySupabase = () => {
                             </div>
                           </td>
                           
+                          {/* Cellules des résultats - non figées */}
                           {tests.map(test => (
                             <ResultCell key={test.id} student={student} test={test} />
                           ))}
                           
-                          <td className="p-4 text-center">
+                          {/* Cellule progression - non figée */}
+                          <td className="p-4 text-center border-l border-gray-300">
                             <div className="space-y-1">
                               <div className={`text-sm font-bold ${
                                 progressPercentage >= 80 ? 'text-green-600' :
@@ -810,6 +845,16 @@ const ResultsEntrySupabase = () => {
                               </div>
                               <div className="text-xs text-gray-500">
                                 {completedTests}/{tests.length}
+                              </div>
+                              {/* Barre de progression mini */}
+                              <div className="w-full bg-gray-200 rounded-full h-1">
+                                <div
+                                  className={`h-1 rounded-full ${
+                                    progressPercentage >= 80 ? 'bg-green-500' :
+                                    progressPercentage >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                                  }`}
+                                  style={{ width: `${progressPercentage}%` }}
+                                ></div>
                               </div>
                             </div>
                           </td>
@@ -890,10 +935,10 @@ const ResultsEntrySupabase = () => {
               </div>
             </div>
             <div className="mt-3 text-xs text-gray-500 flex items-center space-x-2">
-              <Calendar size={12} />
+              <Target size={12} />
               <span>
-                <strong>Interface de saisie :</strong> Optimisée pour la saisie rapide des résultats • 
-                Cliquez sur une cellule pour modifier • Bouton orange pour nettoyer les valeurs "null"
+                <strong>Interface optimisée :</strong> Première ligne (tests) et première colonne (élèves) figées • 
+                Cliquez sur une cellule pour modifier • Boutons de nettoyage des valeurs "null"
               </span>
             </div>
           </div>
