@@ -1,4 +1,4 @@
-// ChallengesClasses.jsx - VERSION AVEC EXPORT PDF INTÉGRÉ
+// ChallengesClasses.jsx - VERSION AVEC EXPORT PDF CORRIGÉ
 import React, { useState, useEffect } from 'react';
 import {
   Trophy,
@@ -58,42 +58,48 @@ const ChallengesClasses = () => {
       icon: Activity,
       color: "#3b82f6",
       bgColor: "from-blue-50 to-blue-100",
-      description: "Capacité cardio-respiratoire"
+      description: "Capacité cardio-respiratoire",
+      defaultUnit: "palier"
     },
     FORCE: {
       name: "Force",
       icon: Target,
       color: "#ef4444",
       bgColor: "from-red-50 to-red-100",
-      description: "Force musculaire et explosive"
+      description: "Force musculaire et explosive",
+      defaultUnit: "cm"
     },
     VITESSE: {
       name: "Vitesse",
       icon: Zap,
       color: "#eab308",
       bgColor: "from-yellow-50 to-yellow-100",
-      description: "Vitesse de déplacement"
+      description: "Vitesse de déplacement",
+      defaultUnit: "sec"
     },
     COORDINATION: {
       name: "Coordination",
       icon: GitBranch,
       color: "#a855f7",
       bgColor: "from-purple-50 to-purple-100",
-      description: "Coordination motrice"
+      description: "Coordination motrice",
+      defaultUnit: "répétitions"
     },
     EQUILIBRE: {
       name: "Équilibre",
       icon: Users,
       color: "#6366f1",
       bgColor: "from-indigo-50 to-indigo-100",
-      description: "Capacité d'équilibre"
+      description: "Capacité d'équilibre",
+      defaultUnit: "sec"
     },
     SOUPLESSE: {
       name: "Souplesse",
       icon: Minimize2,
       color: "#22c55e",
       bgColor: "from-green-50 to-green-100",
-      description: "Flexibilité articulaire"
+      description: "Flexibilité articulaire",
+      defaultUnit: "cm"
     }
   };
 
@@ -133,8 +139,42 @@ const ChallengesClasses = () => {
   };
 
   // ============================================================================
-  // FONCTION D'EXPORT PDF INTÉGRÉE
+  // FONCTION D'EXPORT PDF CORRIGÉE
   // ============================================================================
+
+  // Fonction pour obtenir l'unité appropriée selon le contexte
+  const getDisplayUnit = () => {
+    if (selectedComparison === 'test' && selectedTest) {
+      return selectedTest.unit || 'pts';
+    } else if (selectedComparison === 'category') {
+      return categories[selectedCategory]?.defaultUnit || 'pts';
+    } else {
+      return 'pts'; // Pour la participation globale
+    }
+  };
+
+  // Fonction pour formater une valeur avec son unité
+  const formatValueWithUnit = (value, isAverage = false) => {
+    if (value === null || value === undefined) return '—';
+    
+    const unit = getDisplayUnit();
+    const formattedValue = isAverage ? 
+      (Math.round(value * 100) / 100).toFixed(2) : // Garder 2 décimales pour les moyennes
+      Math.round(value * 100) / 100; // Arrondir pour les autres valeurs
+    
+    return `${formattedValue} ${unit}`;
+  };
+
+  // Fonction pour obtenir une description du test/catégorie
+  const getTestDescription = () => {
+    if (selectedComparison === 'test' && selectedTest) {
+      return `${selectedTest.name} (${selectedTest.category})`;
+    } else if (selectedComparison === 'category') {
+      return `Catégorie ${categories[selectedCategory]?.name || selectedCategory}`;
+    } else {
+      return 'Tous les tests (participation)';
+    }
+  };
 
   // Fonction principale d'export PDF
   const exportChallengesPDF = () => {
@@ -162,11 +202,12 @@ const ChallengesClasses = () => {
     const config = {
       schoolYear: selectedSchoolYear,
       comparisonType: getComparisonTypeLabel(),
-      selectedTest: getSelectedTestLabel(),
+      selectedTest: getTestDescription(),
       selectedLevel: selectedLevel === 'all' ? 'Tous niveaux' : selectedLevel,
       sortBy: getSortByLabel(),
       establishmentName: "Collège Yves du Manoir",
-      totalResults: results.length
+      totalResults: results.length,
+      unit: getDisplayUnit()
     };
     
     // Générer et afficher le PDF
@@ -195,17 +236,6 @@ const ChallengesClasses = () => {
     }
   };
 
-  const getSelectedTestLabel = () => {
-    if (selectedComparison === 'test' && selectedTest) {
-      return `${selectedTest.name} (${selectedTest.category})`;
-    } else if (selectedComparison === 'category') {
-      return `Catégorie ${categories[selectedCategory]?.name || selectedCategory}`;
-    } else if (selectedComparison === 'participation') {
-      return 'Tous les tests';
-    }
-    return 'N/A';
-  };
-
   const getSortByLabel = () => {
     switch (sortBy) {
       case 'average': return 'Moyenne des résultats';
@@ -215,7 +245,7 @@ const ChallengesClasses = () => {
     }
   };
 
-  // Génération du HTML pour l'impression
+  // Génération du HTML pour l'impression - CORRIGÉE
   const generatePrintHTML = (challengeData, config) => {
     const currentDate = new Date().toLocaleDateString('fr-FR', {
       day: '2-digit',
@@ -458,7 +488,7 @@ const ChallengesClasses = () => {
                 <div class="config-value">${config.comparisonType}</div>
             </div>
             <div class="config-item">
-                <div class="config-label">Test à comparer</div>
+                <div class="config-label">Test/Catégorie</div>
                 <div class="config-value">${config.selectedTest}</div>
             </div>
             <div class="config-item">
@@ -496,18 +526,18 @@ const ChallengesClasses = () => {
         </div>
     </div>
     
-    <!-- Tableau des résultats -->
+    <!-- Tableau des résultats avec unités corrigées -->
     <table class="results-table">
         <thead>
             <tr>
                 <th style="width: 8%">#</th>
                 <th style="width: 20%">Classe</th>
-                <th style="width: 12%">Moyenne</th>
-                <th style="width: 15%">Meilleur Score</th>
+                <th style="width: 15%">Moyenne (${config.unit})</th>
+                <th style="width: 15%">Meilleur Score (${config.unit})</th>
                 <th style="width: 12%">Participation</th>
                 <th style="width: 10%">Excellents</th>
-                <th style="width: 13%">Tests Réalisés</th>
-                <th style="width: 10%">Élèves</th>
+                <th style="width: 12%">Tests Réalisés</th>
+                <th style="width: 8%">Élèves</th>
             </tr>
         </thead>
         <tbody>
@@ -524,12 +554,19 @@ const ChallengesClasses = () => {
                                           (classe.participationRate || 0) >= 60 ? 'metric-good' : 
                                           (classe.participationRate || 0) >= 40 ? 'metric-average' : 'metric-low';
                 
+                // Formatage corrigé des valeurs avec unités
+                const formattedAverage = classe.averageScore !== null ? 
+                    `${(Math.round(classe.averageScore * 100) / 100).toFixed(2)} ${config.unit}` : '—';
+                
+                const formattedBestScore = classe.bestScore !== null ? 
+                    `${(Math.round(classe.bestScore * 100) / 100).toFixed(2)} ${config.unit}` : '—';
+                
                 return `
                 <tr>
                     <td class="rank-cell ${rankClass}">${rankIcon} ${index + 1}</td>
                     <td class="class-cell">${classe.classDisplayName}</td>
-                    <td class="${avgClass}">${Math.round(classe.averageScore || 0)}/100</td>
-                    <td class="${classe.bestScore >= 85 ? 'metric-excellent' : 'metric-good'}">${classe.bestScore !== null ? Math.round(classe.bestScore) : '—'}</td>
+                    <td class="${avgClass}">${formattedAverage}</td>
+                    <td class="${classe.bestScore >= 85 ? 'metric-excellent' : 'metric-good'}">${formattedBestScore}</td>
                     <td class="${participationClass}">${Math.round(classe.participationRate || 0)}%</td>
                     <td class="metric-excellent">${classe.excellentCount || 0}</td>
                     <td>${classe.completedTests || 0}/${classe.totalTests || 0}</td>
@@ -539,6 +576,21 @@ const ChallengesClasses = () => {
             }).join('')}
         </tbody>
     </table>
+    
+    <!-- Explication des unités -->
+    <div style="background: #F0F9FF; border: 1px solid #0EA5E9; border-radius: 6px; padding: 8px; margin-bottom: 15px;">
+        <p style="color: #0369A1; font-size: 10px; font-weight: 500;">
+            📊 <strong>Unités :</strong> ${config.unit} = ${
+                config.unit === 'palier' ? 'Palier d\'endurance atteint' :
+                config.unit === 'cm' ? 'Centimètres' :
+                config.unit === 'sec' ? 'Secondes' :
+                config.unit === 'répétitions' ? 'Nombre de répétitions' :
+                config.unit === 'km/h' ? 'Kilomètres par heure' :
+                config.unit === 'pts' ? 'Points sur 100' :
+                'Unité de mesure'
+            } • Test évalué : ${config.selectedTest}
+        </p>
+    </div>
     
     <!-- Message motivant -->
     <div style="background: #EBF8FF; border: 1px solid #3182CE; border-radius: 6px; padding: 10px; text-align: center; margin-bottom: 15px;">
@@ -554,6 +606,7 @@ const ChallengesClasses = () => {
             <strong>Méthodologie :</strong> Système de notation dynamique basé sur les percentiles de performance 
             des élèves de même niveau et sexe. Excellent ≥85pts, Bon ≥70pts, Correct ≥55pts. 
             Challenge généré le ${currentDate} avec ${config.totalResults || 0} résultats analysés.
+            Les moyennes et scores sont exprimés dans l'unité originale du test (${config.unit}).
         </p>
     </div>
     
@@ -943,7 +996,7 @@ const ChallengesClasses = () => {
               <Info size={16} />
               <span>
                 Challenge basé sur {challengeResults.length} classe{challengeResults.length !== 1 ? 's' : ''} • 
-                Évaluation bienveillante et motivante
+                Évaluation bienveillante et motivante • Unité: {getDisplayUnit()}
               </span>
             </div>
             <button
@@ -1002,17 +1055,17 @@ const ChallengesClasses = () => {
                       </div>
                     </div>
 
-                    {/* Statistiques - 5 colonnes */}
+                    {/* Statistiques avec unités - 5 colonnes */}
                     <div className="grid grid-cols-5 gap-6 text-center">
                       <div>
                         <div className="text-2xl font-bold text-blue-600">
-                          {data.average || '—'}
+                          {formatValueWithUnit(data.average, true)}
                         </div>
                         <div className="text-xs text-gray-500">Moyenne</div>
                       </div>
                       <div>
                         <div className="text-2xl font-bold text-indigo-600">
-                          {data.bestScore !== null ? data.bestScore : '—'}
+                          {formatValueWithUnit(data.bestScore)}
                         </div>
                         <div className="text-xs text-gray-500">Meilleur score</div>
                       </div>
