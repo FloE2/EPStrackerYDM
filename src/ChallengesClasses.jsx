@@ -1,4 +1,4 @@
-// ChallengesClasses.jsx - VERSION AVEC EXPORT PDF INTÉGRÉ
+// ChallengesClasses.jsx - VERSION AVEC EXPORT PDF INTÉGRÉ ET CORRECTION DES UNITÉS
 import React, { useState, useEffect } from 'react';
 import {
   Trophy,
@@ -133,6 +133,64 @@ const ChallengesClasses = () => {
   };
 
   // ============================================================================
+  // FONCTIONS UTILITAIRES POUR LES UNITÉS
+  // ============================================================================
+
+  // Fonction pour déterminer l'unité d'affichage d'un test
+  const getTestDisplayUnit = (testName, testUnit) => {
+    if (!testName && !testUnit) return '';
+    
+    // Détecter les tests de temps (où on affiche en secondes)
+    const timeTests = ['SPRINTS', 'VITESSE', '30 mètres', '30m'];
+    const isTimeTest = timeTests.some(keyword => 
+      testName?.toUpperCase().includes(keyword.toUpperCase())
+    );
+    
+    if (isTimeTest || testUnit === 'secondes' || testUnit === 's') {
+      return 's';
+    }
+    
+    // Détecter les tests de distance (où on affiche en mètres)
+    const distanceTests = ['DEMI-COOPER', 'ENDURANCE', 'COOPER', 'VAMEVAL'];
+    const isDistanceTest = distanceTests.some(keyword => 
+      testName?.toUpperCase().includes(keyword.toUpperCase())
+    );
+    
+    if (isDistanceTest || testUnit === 'mètres' || testUnit === 'm') {
+      return 'm';
+    }
+    
+    // Détecter les tests de saut (où on affiche en centimètres)
+    const jumpTests = ['SAUT', 'LONGUEUR'];
+    const isJumpTest = jumpTests.some(keyword => 
+      testName?.toUpperCase().includes(keyword.toUpperCase())
+    );
+    
+    if (isJumpTest || testUnit === 'centimètres' || testUnit === 'cm') {
+      return 'cm';
+    }
+    
+    // Par défaut, on suppose que c'est un score transformé
+    return '/100';
+  };
+
+  // Fonction pour formater une valeur avec son unité
+  const formatTestValue = (value, testName, testUnit) => {
+    if (value === null || value === undefined) return '—';
+    
+    const unit = getTestDisplayUnit(testName, testUnit);
+    const roundedValue = Math.round(value * 100) / 100;
+    
+    // Pour les unités physiques, on affiche la valeur avec l'unité
+    if (unit === 'm' || unit === 'cm' || unit === 's') {
+      return `${roundedValue} ${unit}`;
+    }
+    
+    // Pour les scores sur 100, on garde l'affichage actuel
+    return `${Math.round(value)}${unit}`;
+  };
+
+  // ============================================================================
   // FONCTION D'EXPORT PDF INTÉGRÉE
   // ============================================================================
 
@@ -158,11 +216,27 @@ const ChallengesClasses = () => {
       totalStudents: data.studentsCount || 0
     }));
 
-    // Configuration pour l'export
+    // Configuration pour l'export avec les informations du test
+    let selectedTestName = '';
+    let selectedTestUnit = '';
+    
+    if (selectedComparison === 'test' && selectedTest) {
+      selectedTestName = selectedTest.name;
+      selectedTestUnit = selectedTest.unit;
+    } else if (selectedComparison === 'category') {
+      selectedTestName = selectedCategory;
+      selectedTestUnit = 'points';
+    } else {
+      selectedTestName = 'participation';
+      selectedTestUnit = 'points';
+    }
+
     const config = {
       schoolYear: selectedSchoolYear,
       comparisonType: getComparisonTypeLabel(),
       selectedTest: getSelectedTestLabel(),
+      selectedTestName,
+      selectedTestUnit,
       selectedLevel: selectedLevel === 'all' ? 'Tous niveaux' : selectedLevel,
       sortBy: getSortByLabel(),
       establishmentName: "Collège Yves du Manoir",
@@ -528,8 +602,8 @@ const ChallengesClasses = () => {
                 <tr>
                     <td class="rank-cell ${rankClass}">${rankIcon} ${index + 1}</td>
                     <td class="class-cell">${classe.classDisplayName}</td>
-                    <td class="${avgClass}">${Math.round(classe.averageScore || 0)}/100</td>
-                    <td class="${classe.bestScore >= 85 ? 'metric-excellent' : 'metric-good'}">${classe.bestScore !== null ? Math.round(classe.bestScore) : '—'}</td>
+                    <td class="${avgClass}">${formatTestValue(classe.averageScore, config.selectedTestName, config.selectedTestUnit)}</td>
+                    <td class="${classe.bestScore >= 85 ? 'metric-excellent' : 'metric-good'}">${formatTestValue(classe.bestScore, config.selectedTestName, config.selectedTestUnit)}</td>
                     <td class="${participationClass}">${Math.round(classe.participationRate || 0)}%</td>
                     <td class="metric-excellent">${classe.excellentCount || 0}</td>
                     <td>${classe.completedTests || 0}/${classe.totalTests || 0}</td>
