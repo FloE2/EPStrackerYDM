@@ -1,4 +1,4 @@
-// ChallengesClasses.jsx - VERSION AVEC EXPORT PDF INTÉGRÉ ET CORRECTION DES UNITÉS
+// ChallengesClasses.jsx - VERSION COMPLÈTE AVEC TOUTES LES UNITÉS CORRIGÉES
 import React, { useState, useEffect } from 'react';
 import {
   Trophy,
@@ -133,60 +133,149 @@ const ChallengesClasses = () => {
   };
 
   // ============================================================================
-  // FONCTIONS UTILITAIRES POUR LES UNITÉS
+  // FONCTIONS UTILITAIRES POUR LES UNITÉS - VERSION COMPLÈTE
   // ============================================================================
 
-  // Fonction pour déterminer l'unité d'affichage d'un test
+  // Fonction complète de détection des unités pour tous les tests EPS
   const getTestDisplayUnit = (testName, testUnit) => {
     if (!testName && !testUnit) return '';
     
-    // Détecter les tests de temps (où on affiche en secondes)
-    const timeTests = ['SPRINTS', 'VITESSE', '30 mètres', '30m'];
-    const isTimeTest = timeTests.some(keyword => 
-      testName?.toUpperCase().includes(keyword.toUpperCase())
-    );
+    const testNameUpper = testName?.toUpperCase() || '';
+    const testUnitLower = testUnit?.toLowerCase() || '';
     
-    if (isTimeTest || testUnit === 'secondes' || testUnit === 's') {
-      return 's';
+    // 1. TESTS D'ENDURANCE - Distance en mètres
+    const distanceTests = ['DEMI-COOPER', 'COOPER', 'TEST COOPER'];
+    if (distanceTests.some(keyword => testNameUpper.includes(keyword)) ||
+        testUnitLower === 'mètres' || testUnitLower === 'm') {
+      return ' m';
     }
     
-    // Détecter les tests de distance (où on affiche en mètres)
-    const distanceTests = ['DEMI-COOPER', 'ENDURANCE', 'COOPER', 'VAMEVAL'];
-    const isDistanceTest = distanceTests.some(keyword => 
-      testName?.toUpperCase().includes(keyword.toUpperCase())
-    );
-    
-    if (isDistanceTest || testUnit === 'mètres' || testUnit === 'm') {
-      return 'm';
+    // 2. TESTS D'ENDURANCE - Paliers (Luc Léger)
+    const enduranceTests = ['LUC LEGER', 'LUC-LEGER', 'NAVETTE', 'PALIER'];
+    if (enduranceTests.some(keyword => testNameUpper.includes(keyword)) || 
+        testUnitLower.includes('palier')) {
+      return ' paliers';
     }
     
-    // Détecter les tests de saut (où on affiche en centimètres)
-    const jumpTests = ['SAUT', 'LONGUEUR'];
-    const isJumpTest = jumpTests.some(keyword => 
-      testName?.toUpperCase().includes(keyword.toUpperCase())
-    );
-    
-    if (isJumpTest || testUnit === 'centimètres' || testUnit === 'cm') {
-      return 'cm';
+    // 3. TESTS DE VITESSE - Vitesse en km/h
+    const speedTests = ['36"-24"', '36-24'];
+    if (speedTests.some(keyword => testNameUpper.includes(keyword)) ||
+        testUnitLower === 'km/h') {
+      return ' km/h';
     }
     
-    // Par défaut, on suppose que c'est un score transformé
+    // 4. TESTS DE VITESSE/TEMPS - Secondes
+    const timeTests = ['30 MÈTRES', '30M', '30 M', 'SPRINTS', 'VITESSE', 'PLAT'];
+    if (timeTests.some(keyword => testNameUpper.includes(keyword)) ||
+        testUnitLower === 'secondes' || testUnitLower === 'sec' || testUnitLower === 's') {
+      return ' s';
+    }
+    
+    // 5. TESTS DE FORCE - Minutes
+    const minuteTests = ['CHAISE', 'KILLY'];
+    if (minuteTests.some(keyword => testNameUpper.includes(keyword)) ||
+        testUnitLower === 'minutes' || testUnitLower === 'min') {
+      return ' min';
+    }
+    
+    // 6. TESTS DE FORCE - Kilos
+    const strengthTests = ['POIGNEE', 'POIGNÉE', 'MAIN'];
+    if (strengthTests.some(keyword => testNameUpper.includes(keyword)) ||
+        testUnitLower === 'kilos' || testUnitLower === 'kg') {
+      return ' kg';
+    }
+    
+    // 7. TESTS DE SAUT/LANCER/SOUPLESSE - Centimètres
+    const jumpTests = ['SAUT', 'LONGUEUR', 'LANCER', 'BALLON', 'BASKET', 'SOUPLESSE', 'ÉPAULES', 'POSTÉRIEURE'];
+    if (jumpTests.some(keyword => testNameUpper.includes(keyword)) ||
+        testUnitLower === 'centimètres' || testUnitLower === 'cm') {
+      return ' cm';
+    }
+    
+    // 8. TESTS D'ÉQUILIBRE - Secondes (monopodal)
+    const balanceTimeTests = ['MONOPODAL', 'ÉQUILIBRE'];
+    if (balanceTimeTests.some(keyword => testNameUpper.includes(keyword)) &&
+        (testUnitLower === 'sec' || testUnitLower === 'secondes')) {
+      return ' s';
+    }
+    
+    // 9. TESTS D'ÉQUILIBRE - Nombre de tentatives
+    const balanceAttemptTests = ['FLAMINGO', 'POUTRE'];
+    if (balanceAttemptTests.some(keyword => testNameUpper.includes(keyword)) ||
+        testUnitLower.includes('tentative') || testUnitLower.includes('essai')) {
+      return ' tentatives';
+    }
+    
+    // 10. TESTS DE FORCE - Secondes (suspension, planche)
+    const suspensionTests = ['SUSPENSION', 'BARRE', 'PLANCHE'];
+    if (suspensionTests.some(keyword => testNameUpper.includes(keyword)) &&
+        (testUnitLower === 'sec' || testUnitLower === 'secondes')) {
+      return ' s';
+    }
+    
+    // 11. TESTS DE RÉPÉTITIONS - Nombre
+    const repetitionTests = ['POMPES', 'ABDOS', 'TRACTIONS', 'SQUAT', 'REPETITIONS'];
+    if (repetitionTests.some(keyword => testNameUpper.includes(keyword)) ||
+        testUnitLower === 'répétitions' || testUnitLower === 'reps') {
+      return ' reps';
+    }
+    
+    // 12. Par défaut - Score transformé sur 100
     return '/100';
   };
 
-  // Fonction pour formater une valeur avec son unité
+  // Fonction améliorée pour formater les valeurs avec les bonnes unités
   const formatTestValue = (value, testName, testUnit) => {
     if (value === null || value === undefined) return '—';
     
     const unit = getTestDisplayUnit(testName, testUnit);
-    const roundedValue = Math.round(value * 100) / 100;
     
-    // Pour les unités physiques, on affiche la valeur avec l'unité
-    if (unit === 'm' || unit === 'cm' || unit === 's') {
-      return `${roundedValue} ${unit}`;
+    // Pour les paliers d'endurance (nombres entiers)
+    if (unit === ' paliers') {
+      return `${Math.round(value)}${unit}`;
     }
     
-    // Pour les scores sur 100, on garde l'affichage actuel
+    // Pour les distances en mètres (arrondir à l'unité)
+    if (unit === ' m') {
+      return `${Math.round(value)}${unit}`;
+    }
+    
+    // Pour les vitesses en km/h (1 décimale)
+    if (unit === ' km/h') {
+      return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
+    }
+    
+    // Pour les temps en secondes (1 décimale)
+    if (unit === ' s') {
+      return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
+    }
+    
+    // Pour les temps en minutes (1 décimale)
+    if (unit === ' min') {
+      return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
+    }
+    
+    // Pour les distances en centimètres (arrondir à l'unité)
+    if (unit === ' cm') {
+      return `${Math.round(value)}${unit}`;
+    }
+    
+    // Pour la force en kilos (1 décimale)
+    if (unit === ' kg') {
+      return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
+    }
+    
+    // Pour les tentatives (nombres entiers)
+    if (unit === ' tentatives') {
+      return `${Math.round(value)}${unit}`;
+    }
+    
+    // Pour les répétitions (nombres entiers)
+    if (unit === ' reps') {
+      return `${Math.round(value)}${unit}`;
+    }
+    
+    // Pour les scores transformés sur 100
     return `${Math.round(value)}${unit}`;
   };
 
