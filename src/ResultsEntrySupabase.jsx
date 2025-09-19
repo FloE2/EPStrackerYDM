@@ -1,4 +1,4 @@
-// src/components/ResultsEntrySupabase.jsx - VERSION AVEC NETTOYAGE DES VALEURS NULL + COLONNES/LIGNES FIGÉES
+// src/components/ResultsEntrySupabase.jsx - VERSION AVEC NETTOYAGE DES VALEURS NULL + COLONNES/LIGNES FIGÉES + BARRE DE RECHERCHE CORRIGÉE
 import React, { useState, useEffect } from 'react';
 import { 
   Users, 
@@ -414,6 +414,20 @@ const ResultsEntrySupabase = () => {
     }
   };
 
+  // FONCTION DE GESTION AMÉLIORÉE POUR LA RECHERCHE
+  const handleSearchChange = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSearchTerm(e.target.value);
+  };
+
+  // Fonction pour vider la recherche
+  const clearSearch = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSearchTerm('');
+  };
+
   const refreshData = () => {
     if (selectedClass) {
       loadClassData(selectedClass.id);
@@ -637,7 +651,7 @@ const ResultsEntrySupabase = () => {
     );
   };
 
-  // Vue détaillée d'une classe - AVEC TABLEAU FIGÉ
+  // Vue détaillée d'une classe - AVEC TABLEAU FIGÉ ET BARRE DE RECHERCHE CORRIGÉE
   const ClassDetailView = () => {
     const colors = getLevelColors(selectedClass.level);
     const stats = getCompletionStats();
@@ -699,7 +713,7 @@ const ResultsEntrySupabase = () => {
 
         {/* Contenu */}
         <div className="max-w-7xl mx-auto px-6 py-6">
-          {/* Barre de recherche et bouton nettoyage global */}
+          {/* Barre de recherche et bouton nettoyage global - CORRIGÉE */}
           <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
             <div className="flex items-center space-x-4">
               <div className="flex-1 relative">
@@ -708,9 +722,24 @@ const ResultsEntrySupabase = () => {
                   type="text"
                   placeholder="Rechercher un élève..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  onChange={handleSearchChange}
+                  onInput={handleSearchChange}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck="false"
+                  className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
                 />
+                {/* Bouton de reset de la recherche */}
+                {searchTerm && (
+                  <button
+                    onClick={clearSearch}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    title="Effacer la recherche"
+                  >
+                    <X size={18} />
+                  </button>
+                )}
               </div>
               <div className={`px-4 py-3 ${colors.bg} ${colors.text} rounded-lg border ${colors.border} font-medium`}>
                 {filteredStudents.length} élève{filteredStudents.length !== 1 ? 's' : ''} • {tests.length} tests
@@ -821,7 +850,7 @@ const ResultsEntrySupabase = () => {
                                   cleanNullValues(student.id);
                                 }}
                                 disabled={saving}
-                                className="ml-2 p-1 text-orange-600 hover:text-orange-800 hover:bg-orange-100 rounded disabled:text-gray-400"
+                                className="ml-2 p-1 text-orange-600 hover:text-orange-800 hover:bg-orange-100 rounded disabled:text-gray-400 transition-colors"
                                 title="Nettoyer les valeurs null de cet élève"
                               >
                                 <X size={14} />
