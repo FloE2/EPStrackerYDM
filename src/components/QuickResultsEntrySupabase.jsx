@@ -1,4 +1,4 @@
-// src/components/QuickResultsEntrySupabase.jsx - APPROCHE 5 : REFS PURES
+// src/components/QuickResultsEntrySupabase.jsx - VERSION CORRIGÉE AVEC SAUVEGARDE FONCTIONNELLE
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Users, 
@@ -67,8 +67,8 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
   const [studentsCount, setStudentsCount] = useState({});
   const [mode, setMode] = useState('class-selection'); // 'class-selection' | 'test-selection' | 'mass-entry'
   
-  // États pour la saisie en lot
-  const [tempResults, setTempResults] = useState({}); // Résultats temporaires avant sauvegarde
+  // États pour la saisie en lot - APPROCHE MIXTE PLUS ROBUSTE
+  const [inputValues, setInputValues] = useState({}); // État React pour tracking
   const [savingProgress, setSavingProgress] = useState(0);
   
   // États pour le mot de passe et changement d'année
@@ -77,15 +77,31 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
   const [passwordError, setPasswordError] = useState('');
   const [pendingYear, setPendingYear] = useState(null);
 
-  // APPROCHE 5: Stockage des refs des inputs - SOLUTION RADICALE
+  // Refs pour les inputs - avec vérification de synchronisation
   const inputRefsRef = useRef({});
+  const dataLoadedRef = useRef(false);
 
-  // SIMPLE NAVIGATION FUNCTION - AVEC REFS
+  // Fonction pour synchroniser l'état React avec les refs
+  const syncInputValues = useCallback(() => {
+    const newValues = {};
+    Object.keys(inputRefsRef.current).forEach(studentId => {
+      const input = inputRefsRef.current[studentId];
+      if (input && input.value && input.value.trim() !== '') {
+        newValues[studentId] = input.value.trim();
+      }
+    });
+    setInputValues(newValues);
+  }, []);
+
+  // Gestion de la navigation au clavier avec synchronisation
   const handleKeyDown = (e, studentIndex, filteredStudents) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       
-      // Navigation directe avec les refs
+      // Synchroniser d'abord les valeurs
+      syncInputValues();
+      
+      // Navigation vers le suivant
       const nextIndex = studentIndex + 1;
       if (nextIndex < filteredStudents.length) {
         const nextStudent = filteredStudents[nextIndex];
@@ -98,18 +114,32 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     }
   };
 
-  // Focus automatique sur le premier champ
+  // Gestion du changement de valeur dans les inputs
+  const handleInputChange = (studentId, value) => {
+    // Mettre à jour l'état React
+    setInputValues(prev => ({
+      ...prev,
+      [studentId]: value
+    }));
+    
+    // Mettre à jour la ref si elle existe
+    const input = inputRefsRef.current[studentId];
+    if (input && input.value !== value) {
+      input.value = value;
+    }
+  };
+
+  // Focus automatique sur le premier champ quand on arrive en saisie
   useEffect(() => {
-    if (mode === 'mass-entry') {
+    if (mode === 'mass-entry' && students.length > 0 && dataLoadedRef.current) {
+      // Attendre que le DOM soit complètement rendu
       setTimeout(() => {
         const firstStudent = students[0];
-        if (firstStudent) {
+        if (firstStudent && inputRefsRef.current[firstStudent.id]) {
           const firstInput = inputRefsRef.current[firstStudent.id];
-          if (firstInput) {
-            firstInput.focus();
-          }
+          firstInput.focus();
         }
-      }, 300);
+      }, 500);
     }
   }, [mode, students]);
 
@@ -212,7 +242,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
 
   // Fonction pour gérer le retour avec mot de passe
   const handleBackWithPassword = () => {
-    setPendingYear(null); // Pas de changement d'année, juste retour
+    setPendingYear(null);
     setShowPasswordModal(true);
     setPasswordInput('');
     setPasswordError('');
@@ -257,11 +287,11 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     setSelectedTest(null);
     setMode('class-selection');
     setSearchTerm('');
-    setTempResults({});
+    setInputValues({});
     setResults({});
     setStudents([]);
-    // Reset des refs
     inputRefsRef.current = {};
+    dataLoadedRef.current = false;
   };
 
   // Chargement des classes et comptage des élèves (filtré par année)
@@ -269,8 +299,9 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     try {
       setLoading(true);
       setError(null);
+      dataLoadedRef.current = false;
       
-      console.log('QuickResultsEntry: Utilisation instance Supabase centralisée pour année', selectedYear);
+      console.log('🔄 QuickResultsEntry: Chargement pour année', selectedYear);
       
       // Charger les classes filtrées par année scolaire
       const [classesRes, testsRes] = await Promise.all([
@@ -302,10 +333,11 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
         }
       }
       setStudentsCount(counts);
+      dataLoadedRef.current = true;
       
     } catch (err) {
       setError(err.message);
-      console.error('Erreur lors du chargement:', err);
+      console.error('❌ Erreur lors du chargement:', err);
     } finally {
       setLoading(false);
     }
@@ -315,6 +347,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
   const loadClassData = async (classId) => {
     try {
       setLoading(true);
+      dataLoadedRef.current = false;
       
       // Charger seulement les élèves de la classe pour l'année sélectionnée
       const studentsRes = await supabase
@@ -326,7 +359,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
       
       if (studentsRes.error) throw studentsRes.error;
       
-      console.log('Élèves chargés pour', selectedYear, ':', studentsRes.data);
+      console.log('✅ Élèves chargés pour', selectedYear, ':', studentsRes.data.length);
       setStudents(studentsRes.data);
       
       if (studentsRes.data.length === 0) {
@@ -334,18 +367,23 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
         return;
       }
       
+      dataLoadedRef.current = true;
+      
     } catch (err) {
-      console.error('Erreur lors du chargement de la classe:', err);
+      console.error('❌ Erreur lors du chargement de la classe:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Chargement des résultats existants pour un test spécifique (filtré par année)
+  // Chargement des résultats existants pour un test spécifique - VERSION CORRIGÉE
   const loadTestResults = async (classId, testId) => {
     try {
       setLoading(true);
+      dataLoadedRef.current = false;
+      
+      console.log('🔄 Chargement des résultats pour test', testId, 'classe', classId, 'année', selectedYear);
       
       // Charger les résultats pour ce test, cette classe et cette année
       const resultsRes = await supabase
@@ -360,67 +398,97 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
       
       if (resultsRes.error) throw resultsRes.error;
       
+      console.log('✅ Résultats chargés:', resultsRes.data.length);
+      
       // Transformer en map avec student_id comme clé
       const resultsMap = {};
-      const tempMap = {};
+      const initialInputValues = {};
       
       resultsRes.data.forEach(result => {
+        const value = result.value ? String(result.value) : '';
         resultsMap[result.student_id] = result.value;
-        tempMap[result.student_id] = result.value ? String(result.value) : '';
+        initialInputValues[result.student_id] = value;
       });
       
+      // Mettre à jour les états
       setResults(resultsMap);
-      setTempResults(tempMap);
+      setInputValues(initialInputValues);
       
-      // APPROCHE 5: Mettre à jour les inputs via les refs
+      // Attendre que le DOM soit rendu puis initialiser les inputs
+      dataLoadedRef.current = true;
+      
+      // Initialiser les valeurs dans les inputs après un délai
       setTimeout(() => {
-        resultsRes.data.forEach(result => {
-          const input = inputRefsRef.current[result.student_id];
-          if (input && result.value) {
-            input.value = String(result.value);
+        console.log('🔧 Initialisation des inputs...');
+        Object.keys(initialInputValues).forEach(studentId => {
+          const input = inputRefsRef.current[studentId];
+          const value = initialInputValues[studentId];
+          if (input && value) {
+            input.value = value;
+            console.log(`  ✓ Input ${studentId} initialisé à:`, value);
           }
         });
-      }, 100);
+      }, 200);
       
     } catch (err) {
-      console.error('Erreur lors du chargement des résultats:', err);
+      console.error('❌ Erreur lors du chargement des résultats:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // APPROCHE 5: Sauvegarde modifiée pour lire uniquement les refs
+  // SAUVEGARDE CORRIGÉE - VERSION ROBUSTE
   const saveAllResults = async () => {
     try {
       setSaving(true);
       setSavingProgress(0);
       
-      // Lire les valeurs directement des refs - AUCUNE interaction React
-      const resultsToSave = [];
+      console.log('💾 Début de la sauvegarde...');
       
-      Object.keys(inputRefsRef.current).forEach(studentId => {
-        const input = inputRefsRef.current[studentId];
-        if (input && input.value && input.value.trim() !== '') {
-          resultsToSave.push({
-            student_id: parseInt(studentId),
-            test_id: selectedTest.id,
-            value: parseFloat(input.value.trim()),
-            unit: selectedTest.unit,
-            school_year: selectedYear,
-            date_recorded: new Date().toISOString()
-          });
+      // Synchroniser les valeurs avant sauvegarde
+      syncInputValues();
+      
+      // Attendre un peu que la synchronisation soit terminée
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Préparer les données à sauvegarder en combinant état React et refs
+      const resultsToSave = [];
+      const allStudentIds = students.map(s => s.id);
+      
+      allStudentIds.forEach(studentId => {
+        // Prendre la valeur de l'état React en priorité, sinon de la ref
+        let value = inputValues[studentId];
+        if (!value) {
+          const input = inputRefsRef.current[studentId];
+          if (input && input.value && input.value.trim() !== '') {
+            value = input.value.trim();
+          }
+        }
+        
+        if (value && value !== '') {
+          const numericValue = parseFloat(value);
+          if (!isNaN(numericValue)) {
+            resultsToSave.push({
+              student_id: parseInt(studentId),
+              test_id: selectedTest.id,
+              value: numericValue,
+              unit: selectedTest.unit,
+              school_year: selectedYear,
+              date_recorded: new Date().toISOString()
+            });
+          }
         }
       });
 
+      console.log('📊 Données à sauvegarder:', resultsToSave.length, 'résultats');
+
       if (resultsToSave.length === 0) {
-        alert('Aucun résultat valide à sauvegarder');
+        alert('❌ Aucun résultat valide à sauvegarder');
         return;
       }
 
-      console.log('Données à sauvegarder (lecture refs pures):', resultsToSave);
-
-      // Sauvegarder un par un
+      // Sauvegarder un par un avec feedback de progression
       for (let i = 0; i < resultsToSave.length; i++) {
         const result = resultsToSave[i];
         
@@ -434,11 +502,12 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
             .eq('school_year', result.school_year)
             .maybeSingle();
 
-          if (selectError) {
-            console.error('Erreur lors de la vérification:', selectError);
+          if (selectError && selectError.code !== 'PGRST116') { // PGRST116 = no rows found
+            console.error('❌ Erreur vérification pour élève', result.student_id, ':', selectError);
             continue;
           }
 
+          let success = false;
           if (existing) {
             // Mettre à jour
             const { error: updateError } = await supabase
@@ -453,8 +522,10 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
               .eq('school_year', result.school_year);
               
             if (updateError) {
-              console.error('Erreur lors de la mise à jour:', updateError);
-              continue;
+              console.error('❌ Erreur mise à jour élève', result.student_id, ':', updateError);
+            } else {
+              success = true;
+              console.log('✅ Mise à jour élève', result.student_id, 'valeur:', result.value);
             }
           } else {
             // Créer nouveau
@@ -463,26 +534,32 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
               .insert([result]);
               
             if (insertError) {
-              console.error('Erreur lors de l\'insertion:', insertError);
-              continue;
+              console.error('❌ Erreur insertion élève', result.student_id, ':', insertError);
+            } else {
+              success = true;
+              console.log('✅ Insertion élève', result.student_id, 'valeur:', result.value);
             }
           }
           
-          setSavingProgress(Math.round(((i + 1) / resultsToSave.length) * 100));
+          if (success) {
+            setSavingProgress(Math.round(((i + 1) / resultsToSave.length) * 100));
+          }
           
         } catch (individualError) {
-          console.error(`Erreur pour l'élève ${result.student_id}:`, individualError);
+          console.error(`❌ Erreur pour l'élève ${result.student_id}:`, individualError);
         }
       }
 
+      console.log('✅ Sauvegarde terminée, rechargement des données...');
+      
       // Recharger les données après sauvegarde
       await loadTestResults(selectedClass.id, selectedTest.id);
       
-      alert(`Sauvegarde terminée pour l'année ${selectedYear}!`);
+      alert(`✅ Sauvegarde terminée pour l'année ${selectedYear}!`);
       
     } catch (error) {
-      console.error('Erreur générale lors de la sauvegarde:', error);
-      alert('Erreur lors de la sauvegarde des résultats: ' + error.message);
+      console.error('❌ Erreur générale lors de la sauvegarde:', error);
+      alert('❌ Erreur lors de la sauvegarde des résultats: ' + error.message);
     } finally {
       setSaving(false);
       setSavingProgress(0);
@@ -499,16 +576,12 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     }
   };
 
-  // APPROCHE 5: Fonction pour compter les résultats à partir des refs
-  const getCompletedCountFromRefs = () => {
-    let count = 0;
-    Object.keys(inputRefsRef.current).forEach(studentId => {
-      const input = inputRefsRef.current[studentId];
-      if (input && input.value && input.value.trim() !== '') {
-        count++;
-      }
-    });
-    return count;
+  // Fonction pour compter les résultats complétés
+  const getCompletedCount = () => {
+    return Object.keys(inputValues).filter(studentId => {
+      const value = inputValues[studentId];
+      return value && value.trim() !== '';
+    }).length;
   };
 
   // Composant pour le sélecteur d'année (avec protection mot de passe)
@@ -533,7 +606,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     </div>
   );
 
-  // Modal mot de passe (avec gestion du changement d'année)
+  // Modal mot de passe
   const PasswordModal = () => {
     if (!showPasswordModal) return null;
 
@@ -585,7 +658,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                   setShowPasswordModal(false);
                   setPasswordInput('');
                   setPasswordError('');
-                  setPendingYear(null); // Annuler le changement d'année pendante
+                  setPendingYear(null);
                 }}
                 className="flex-1 py-2 px-4 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
               >
@@ -604,7 +677,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     );
   };
 
-  // Vue 1: Sélection des classes (avec filtre par année)
+  // Vue 1: Sélection des classes
   const ClassSelectionView = () => {
     const classesByLevel = {
       '6ème': classes.filter(c => c.level === '6ème').sort((a, b) => a.name.localeCompare(b.name)),
@@ -798,7 +871,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     );
   };
 
-  // Vue 3: Saisie en masse - APPROCHE 5 AVEC REFS PURES
+  // Vue 3: Saisie en masse - VERSION CORRIGÉE AVEC SYNCHRONISATION
   const MassEntryView = () => {
     const colors = getLevelColors(selectedClass.level);
     
@@ -807,18 +880,17 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     );
 
     const clearAllResults = () => {
-      // Vider directement les inputs via les refs
+      // Vider les inputs ET l'état React
       Object.keys(inputRefsRef.current).forEach(studentId => {
         const input = inputRefsRef.current[studentId];
         if (input) {
           input.value = '';
         }
       });
-      setTempResults({});
+      setInputValues({});
     };
 
-    // Calculer le nombre de résultats complétés à partir des refs
-    const completedCount = getCompletedCountFromRefs();
+    const completedCount = getCompletedCount();
 
     return (
       <div className="min-h-screen bg-gray-50">
@@ -831,7 +903,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                   onClick={() => {
                     setMode('test-selection');
                     setSelectedTest(null);
-                    setTempResults({});
+                    setInputValues({});
                     inputRefsRef.current = {};
                   }}
                   className="flex items-center space-x-2 px-3 py-2 bg-white bg-opacity-20 text-white rounded-lg hover:bg-opacity-30 transition-colors"
@@ -918,39 +990,32 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
           </div>
 
           {/* Instructions */}
-          {selectedTest && (
-            <div className="mt-8 text-center">
-              <div className="bg-white rounded-lg p-4 shadow-md">
-                <div className="flex items-center justify-center space-x-6 text-sm text-gray-600">
-                  <div className="flex items-center space-x-2">
-                    <kbd className="px-2 py-1 bg-gray-200 rounded text-xs">Clic</kbd>
-                    <span>Saisir résultat</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <kbd className="px-2 py-1 bg-gray-200 rounded text-xs">Entrée</kbd>
-                    <span>Élève suivant</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="px-2 py-1 bg-purple-200 rounded text-xs">APPROCHE 5</span>
-                    <span>Refs pures - Aucun événement onChange</span>
-                  </div>
-                </div>
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center justify-center space-x-6 text-sm text-green-700">
+              <div className="flex items-center space-x-2">
+                <CheckCircle size={16} />
+                <span><strong>VERSION CORRIGÉE</strong> - Sauvegarde fonctionnelle</span>
               </div>
+              <div className="flex items-center space-x-2">
+                <kbd className="px-2 py-1 bg-green-200 rounded text-xs">Entrée</kbd>
+                <span>Élève suivant</span>
+              </div>
+              <div className="text-xs">État React + Refs synchronisés</div>
             </div>
-          )}
+          </div>
 
-          {/* GRILLE AVEC APPROCHE 5 - REFS PURES, AUCUN ÉVÉNEMENT onChange */}
+          {/* GRILLE AVEC APPROCHE MIXTE - État React + Refs */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredStudents.map((student, index) => {
-              const tempValue = tempResults[student.id] || '';
-              const hasTemp = tempValue && tempValue.toString().trim() !== '';
+              const inputValue = inputValues[student.id] || '';
+              const hasValue = inputValue && inputValue.toString().trim() !== '';
               const hasExisting = results[student.id];
               
               return (
                 <div
                   key={student.id}
                   className={`bg-white rounded-lg border-2 p-4 transition-all duration-200 ${
-                    hasTemp 
+                    hasValue 
                       ? 'border-green-300 bg-green-50' 
                       : hasExisting 
                       ? 'border-blue-300 bg-blue-50'
@@ -962,7 +1027,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-sm font-bold text-gray-600">
                       {index + 1}
                     </div>
-                    {hasTemp && (
+                    {hasValue && (
                       <CheckCircle className="text-green-500" size={20} />
                     )}
                   </div>
@@ -981,7 +1046,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                   </div>
 
                   {/* Résultat existant */}
-                  {hasExisting && !hasTemp && (
+                  {hasExisting && !hasValue && (
                     <div className="text-center mb-3">
                       <div className="text-xs text-gray-500 mb-1">Résultat actuel</div>
                       <div className="text-sm font-medium text-blue-600">
@@ -990,21 +1055,18 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     </div>
                   )}
 
-                  {/* APPROCHE 5: INPUT AVEC REF PURE - AUCUN ÉVÉNEMENT onChange/onInput */}
+                  {/* INPUT AVEC SYNCHRONISATION ÉTAT REACT + REF */}
                   <div className="space-y-2">
                     <input
                       ref={(el) => {
                         if (el) {
                           inputRefsRef.current[student.id] = el;
-                          // Initialiser la valeur si elle existe
-                          if (tempValue && el.value !== tempValue) {
-                            el.value = tempValue;
-                          }
                         }
                       }}
                       type="number"
                       step="0.01"
-                      defaultValue={tempValue}
+                      value={inputValue}
+                      onChange={(e) => handleInputChange(student.id, e.target.value)}
                       onKeyDown={(e) => handleKeyDown(e, index, filteredStudents)}
                       placeholder={
                         selectedTest.unit === 'sec' && 
@@ -1062,7 +1124,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                 
                 <div className="text-right">
                   <p className="text-sm text-gray-600 mb-2">
-                    <strong>APPROCHE 5 RADICALE :</strong> Refs pures, aucun événement React
+                    <strong>✅ SAUVEGARDE CORRIGÉE :</strong> État React + Refs synchronisés
                   </p>
                   <div className="flex space-x-3">
                     <button
@@ -1145,7 +1207,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
             <div className="flex items-center space-x-4">
               <button
                 onClick={() => {
-                  // Demander le mot de passe avant de retourner au dashboard
                   setPendingYear('dashboard');
                   setShowPasswordModal(true);
                   setPasswordInput('');
@@ -1157,11 +1218,11 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                 <span>Tableau de bord</span>
               </button>
               <div className="flex items-center space-x-3">
-                <Target size={28} className="text-blue-600" />
+                <Target size={28} className="text-green-600" />
                 <div>
-                  <h1 className="text-xl font-bold text-gray-800">Mode Atelier - Saisie Rapide (APPROCHE 5)</h1>
+                  <h1 className="text-xl font-bold text-gray-800">Mode Atelier - Saisie Rapide (CORRIGÉ)</h1>
                   <p className="text-sm text-gray-600">
-                    Refs pures - Aucune interaction React • Année {selectedYear}
+                    ✅ Sauvegarde fonctionnelle - État React + Refs • Année {selectedYear}
                   </p>
                 </div>
               </div>
