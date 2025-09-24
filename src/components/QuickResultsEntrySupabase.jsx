@@ -81,27 +81,25 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
   const inputRefsRef = useRef({});
   const dataLoadedRef = useRef(false);
 
-  // Fonction pour synchroniser l'état React avec les refs
+  // Fonction pour synchroniser l'état React avec les refs (utilisée uniquement avant sauvegarde)
   const syncInputValues = useCallback(() => {
-    const newValues = {};
+    // Plus besoin de synchronisation constante - seulement avant sauvegarde si nécessaire
+    const newValues = { ...inputValues };
     Object.keys(inputRefsRef.current).forEach(studentId => {
       const input = inputRefsRef.current[studentId];
-      if (input && input.value && input.value.trim() !== '') {
+      if (input && input.value && input.value.trim() !== '' && !newValues[studentId]) {
         newValues[studentId] = input.value.trim();
       }
     });
-    setInputValues(newValues);
-  }, []);
+    return newValues;
+  }, [inputValues]);
 
-  // Gestion de la navigation au clavier avec synchronisation
+  // Gestion de la navigation au clavier - VERSION SIMPLIFIÉE
   const handleKeyDown = (e, studentIndex, filteredStudents) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       
-      // Synchroniser d'abord les valeurs
-      syncInputValues();
-      
-      // Navigation vers le suivant
+      // Navigation vers le suivant sans synchronisation
       const nextIndex = studentIndex + 1;
       if (nextIndex < filteredStudents.length) {
         const nextStudent = filteredStudents[nextIndex];
@@ -114,19 +112,13 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     }
   };
 
-  // Gestion du changement de valeur dans les inputs
+  // Gestion du changement de valeur dans les inputs - VERSION SIMPLIFIÉE
   const handleInputChange = (studentId, value) => {
-    // Mettre à jour l'état React
+    // Mettre à jour SEULEMENT l'état React - pas de manipulation des refs
     setInputValues(prev => ({
       ...prev,
       [studentId]: value
     }));
-    
-    // Mettre à jour la ref si elle existe
-    const input = inputRefsRef.current[studentId];
-    if (input && input.value !== value) {
-      input.value = value;
-    }
   };
 
   // Focus automatique sur le premier champ quand on arrive en saisie
@@ -438,7 +430,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     }
   };
 
-  // SAUVEGARDE CORRIGÉE - VERSION ROBUSTE
+  // SAUVEGARDE SIMPLIFIÉE - UNIQUEMENT ÉTAT REACT
   const saveAllResults = async () => {
     try {
       setSaving(true);
@@ -446,28 +438,13 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
       
       console.log('💾 Début de la sauvegarde...');
       
-      // Synchroniser les valeurs avant sauvegarde
-      syncInputValues();
-      
-      // Attendre un peu que la synchronisation soit terminée
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Préparer les données à sauvegarder en combinant état React et refs
+      // Préparer les données UNIQUEMENT à partir de l'état React
       const resultsToSave = [];
-      const allStudentIds = students.map(s => s.id);
       
-      allStudentIds.forEach(studentId => {
-        // Prendre la valeur de l'état React en priorité, sinon de la ref
-        let value = inputValues[studentId];
-        if (!value) {
-          const input = inputRefsRef.current[studentId];
-          if (input && input.value && input.value.trim() !== '') {
-            value = input.value.trim();
-          }
-        }
-        
-        if (value && value !== '') {
-          const numericValue = parseFloat(value);
+      Object.keys(inputValues).forEach(studentId => {
+        const value = inputValues[studentId];
+        if (value && value.trim() !== '') {
+          const numericValue = parseFloat(value.trim());
           if (!isNaN(numericValue)) {
             resultsToSave.push({
               student_id: parseInt(studentId),
@@ -1055,19 +1032,31 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     </div>
                   )}
 
-                  {/* INPUT AVEC SYNCHRONISATION ÉTAT REACT + REF */}
+                  {/* INPUT SIMPLIFIÉ - 100% REACT SANS REFS POUR LA SAISIE */}
                   <div className="space-y-2">
                     <input
-                      ref={(el) => {
-                        if (el) {
-                          inputRefsRef.current[student.id] = el;
-                        }
-                      }}
                       type="number"
                       step="0.01"
                       value={inputValue}
                       onChange={(e) => handleInputChange(student.id, e.target.value)}
-                      onKeyDown={(e) => handleKeyDown(e, index, filteredStudents)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const nextIndex = index + 1;
+                          if (nextIndex < filteredStudents.length) {
+                            const nextStudent = filteredStudents[nextIndex];
+                            // Utiliser setTimeout pour éviter les conflits
+                            setTimeout(() => {
+                              const nextInput = document.querySelector(`input[data-student-id="${nextStudent.id}"]`);
+                              if (nextInput) {
+                                nextInput.focus();
+                                nextInput.select();
+                              }
+                            }, 50);
+                          }
+                        }
+                      }}
+                      data-student-id={student.id}
                       placeholder={
                         selectedTest.unit === 'sec' && 
                         (selectedTest.name.includes('Planche') || selectedTest.name.includes('Chaise') || selectedTest.name.includes('Suspension'))
