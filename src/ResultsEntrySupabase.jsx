@@ -1,5 +1,5 @@
-// src/components/ResultsEntrySupabase.jsx - VERSION AVEC NETTOYAGE DES VALEURS NULL + COLONNES/LIGNES FIGÉES + BARRE DE RECHERCHE CORRIGÉE
-import React, { useState, useEffect } from 'react';
+// src/components/ResultsEntrySupabase.jsx - VERSION AVEC SAISIE FLUIDE ET NAVIGATION AMÉLIORÉE
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, 
   Activity, 
@@ -32,6 +32,10 @@ const ResultsEntrySupabase = () => {
   // Récupération de l'année scolaire sélectionnée
   const { selectedSchoolYear, currentSchoolYear } = useSchoolYear();
   
+  // Ref pour maintenir la position de scroll
+  const tableScrollRef = useRef(null);
+  const scrollPosition = useRef({ top: 0, left: 0 });
+  
   // États principaux
   const [selectedClass, setSelectedClass] = useState(null);
   const [classes, setClasses] = useState([]);
@@ -50,6 +54,28 @@ const ResultsEntrySupabase = () => {
   const [editingCell, setEditingCell] = useState(null);
   const [editValue, setEditValue] = useState('');
   const [editStatus, setEditStatus] = useState('result'); // 'result' | 'absent' | 'dispensed'
+
+  // Fonction pour sauvegarder et restaurer la position de scroll
+  const saveScrollPosition = () => {
+    if (tableScrollRef.current) {
+      scrollPosition.current = {
+        top: tableScrollRef.current.scrollTop,
+        left: tableScrollRef.current.scrollLeft
+      };
+    }
+  };
+
+  const restoreScrollPosition = () => {
+    if (tableScrollRef.current && scrollPosition.current) {
+      // Utiliser requestAnimationFrame pour s'assurer que le DOM est à jour
+      requestAnimationFrame(() => {
+        if (tableScrollRef.current) {
+          tableScrollRef.current.scrollTop = scrollPosition.current.top;
+          tableScrollRef.current.scrollLeft = scrollPosition.current.left;
+        }
+      });
+    }
+  };
 
   // Chargement initial et quand l'année change
   useEffect(() => {
@@ -235,6 +261,9 @@ const ResultsEntrySupabase = () => {
   };
 
   const handleCellEdit = (studentId, testId, type = 'result') => {
+    // Sauvegarder la position de scroll AVANT d'ouvrir l'édition
+    saveScrollPosition();
+    
     const current = getResultStatus(studentId, testId);
     
     setEditingCell({ studentId, testId });
@@ -242,11 +271,73 @@ const ResultsEntrySupabase = () => {
     setEditValue(current?.value || '');
   };
 
+  // Navigation avec les touches
+  const handleKeyDown = (e, studentId, testId) => {
+    if (!editingCell) return;
+    
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      // Passer au test suivant ou à l'élève suivant
+      saveEdit().then(() => {
+        navigateToNextCell(studentId, testId, e.shiftKey);
+      });
+    }
+  };
+
+  // Navigation vers la cellule suivante
+  const navigateToNextCell = (currentStudentId, currentTestId, reverse = false) => {
+    const currentStudentIndex = students.findIndex(s => s.id === currentStudentId);
+    const currentTestIndex = tests.findIndex(t => t.id === currentTestId);
+    
+    let nextStudentIndex = currentStudentIndex;
+    let nextTestIndex = currentTestIndex;
+    
+    if (reverse) {
+      // Navigation vers la gauche/haut
+      nextTestIndex--;
+      if (nextTestIndex < 0) {
+        nextTestIndex = tests.length - 1;
+        nextStudentIndex--;
+        if (nextStudentIndex < 0) {
+          nextStudentIndex = students.length - 1;
+        }
+      }
+    } else {
+      // Navigation vers la droite/bas
+      nextTestIndex++;
+      if (nextTestIndex >= tests.length) {
+        nextTestIndex = 0;
+        nextStudentIndex++;
+        if (nextStudentIndex >= students.length) {
+          nextStudentIndex = 0;
+        }
+      }
+    }
+    
+    // Ouvrir l'édition de la nouvelle cellule après un court délai
+    setTimeout(() => {
+      const nextStudent = students[nextStudentIndex];
+      const nextTest = tests[nextTestIndex];
+      if (nextStudent && nextTest) {
+        handleCellEdit(nextStudent.id, nextTest.id);
+      }
+    }, 100);
+  };
+
   const saveEdit = async () => {
     if (!editingCell) return;
     
     try {
       setSaving(true);
+      
+      // Sauvegarder la position de scroll AVANT la sauvegarde
+      saveScrollPosition();
       
       const { studentId, testId } = editingCell;
       const key = `${studentId}-${testId}`;
@@ -292,6 +383,11 @@ const ResultsEntrySupabase = () => {
       setEditValue('');
       setEditStatus('result');
       
+      // Restaurer la position de scroll APRÈS la mise à jour de l'état
+      setTimeout(() => {
+        restoreScrollPosition();
+      }, 50);
+      
     } catch (error) {
       console.error('Erreur lors de la sauvegarde:', error);
       alert('Erreur lors de la sauvegarde du résultat');
@@ -304,6 +400,8 @@ const ResultsEntrySupabase = () => {
     setEditingCell(null);
     setEditValue('');
     setEditStatus('result');
+    // Restaurer la position de scroll
+    restoreScrollPosition();
   };
 
   // NOUVELLES FONCTIONS DE NETTOYAGE DES VALEURS NULL
@@ -312,6 +410,7 @@ const ResultsEntrySupabase = () => {
   const cleanNullValues = async (studentId) => {
     try {
       setSaving(true);
+      saveScrollPosition(); // Sauvegarder la position avant nettoyage
       
       // Récupérer TOUS les résultats de cet élève d'abord
       const { data: allResults, error: fetchError } = await supabase
@@ -347,6 +446,7 @@ const ResultsEntrySupabase = () => {
         });
         setResults(newResults);
         
+        setTimeout(() => restoreScrollPosition(), 50);
         alert(`${nullResults.length} valeur(s) "null" supprimée(s) avec succès !`);
       } else {
         alert('Aucune valeur "null" trouvée pour cet élève.');
@@ -368,6 +468,7 @@ const ResultsEntrySupabase = () => {
     
     try {
       setSaving(true);
+      saveScrollPosition(); // Sauvegarder la position avant nettoyage
       
       // Récupérer tous les IDs des élèves de cette classe
       const studentIds = students.map(s => s.id);
@@ -399,8 +500,9 @@ const ResultsEntrySupabase = () => {
         if (deleteError) throw deleteError;
         
         // Recharger les données
-        loadClassData(selectedClass.id);
+        await loadClassData(selectedClass.id);
         
+        setTimeout(() => restoreScrollPosition(), 100);
         alert(`${nullResults.length} valeur(s) "null" supprimée(s) avec succès !`);
       } else {
         alert('Aucune valeur "null" trouvée dans cette classe.');
@@ -429,8 +531,11 @@ const ResultsEntrySupabase = () => {
   };
 
   const refreshData = () => {
+    saveScrollPosition(); // Sauvegarder avant actualisation
     if (selectedClass) {
-      loadClassData(selectedClass.id);
+      loadClassData(selectedClass.id).then(() => {
+        setTimeout(() => restoreScrollPosition(), 100);
+      });
     } else {
       loadClassesAndCounts();
     }
@@ -443,7 +548,7 @@ const ResultsEntrySupabase = () => {
     
     if (isEditing) {
       return (
-        <td className="p-2 border border-gray-300 bg-blue-50">
+        <td className="p-2 border border-gray-300 bg-blue-50 relative z-50">
           <style jsx>{`
             .no-spinner::-webkit-outer-spin-button,
             .no-spinner::-webkit-inner-spin-button {
@@ -489,6 +594,7 @@ const ResultsEntrySupabase = () => {
                 step="0.01"
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, student.id, test.id)}
                 className="no-spinner w-full p-1 text-xs border rounded"
                 placeholder={test.unit}
                 autoFocus
@@ -509,6 +615,9 @@ const ResultsEntrySupabase = () => {
               >
                 ✕
               </button>
+            </div>
+            <div className="text-xs text-gray-500">
+              Enter: Valider | Esc: Annuler | Tab: Suivant
             </div>
           </div>
         </td>
@@ -651,7 +760,7 @@ const ResultsEntrySupabase = () => {
     );
   };
 
-  // Vue détaillée d'une classe - AVEC TABLEAU FIGÉ ET BARRE DE RECHERCHE CORRIGÉE
+  // Vue détaillée d'une classe - AVEC SCROLL MAINTENU
   const ClassDetailView = () => {
     const colors = getLevelColors(selectedClass.level);
     const stats = getCompletionStats();
@@ -713,7 +822,7 @@ const ResultsEntrySupabase = () => {
 
         {/* Contenu */}
         <div className="max-w-7xl mx-auto px-6 py-6">
-          {/* Barre de recherche et bouton nettoyage global - CORRIGÉE */}
+          {/* Barre de recherche et bouton nettoyage global */}
           <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
             <div className="flex items-center space-x-4">
               <div className="flex-1 relative">
@@ -761,14 +870,16 @@ const ResultsEntrySupabase = () => {
             <div className="flex items-center space-x-2">
               <Activity className="text-blue-600" size={16} />
               <p className="text-sm text-blue-700">
-                <strong>Interface de saisie :</strong> Cliquez sur une cellule pour saisir un résultat, marquer un élève absent ou dispensé. 
-                Utilisez le bouton orange "Nettoyer les null" pour supprimer automatiquement toutes les valeurs erronées.
-                La première ligne (tests) et la première colonne (élèves) sont figées pour faciliter la navigation.
+                <strong>Navigation rapide :</strong> Cliquez sur une cellule pour saisir. 
+                Utilisez <kbd className="bg-blue-200 px-1 rounded">Enter</kbd> pour valider, 
+                <kbd className="bg-blue-200 px-1 rounded">Tab</kbd> pour passer au suivant, 
+                <kbd className="bg-blue-200 px-1 rounded">Esc</kbd> pour annuler.
+                La position de scroll est conservée lors de la saisie.
               </p>
             </div>
           </div>
 
-          {/* Tableau des résultats avec colonnes/lignes figées */}
+          {/* Tableau des résultats avec scroll maintenu */}
           {filteredStudents.length === 0 ? (
             <div className="bg-white rounded-lg shadow-sm p-12 text-center">
               <Search className="mx-auto text-gray-400 mb-6" size={80} />
@@ -789,7 +900,11 @@ const ResultsEntrySupabase = () => {
                   box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
                 }
               `}</style>
-              <div className="overflow-auto max-h-[600px]">
+              <div 
+                ref={tableScrollRef}
+                className="overflow-auto max-h-[600px]"
+                style={{ scrollBehavior: 'auto' }} // Éviter le smooth scroll qui interfère
+              >
                 <table className="w-full">
                   {/* En-tête figé */}
                   <thead className="sticky top-0 z-20">
@@ -966,8 +1081,8 @@ const ResultsEntrySupabase = () => {
             <div className="mt-3 text-xs text-gray-500 flex items-center space-x-2">
               <Target size={12} />
               <span>
-                <strong>Interface optimisée :</strong> Première ligne (tests) et première colonne (élèves) figées • 
-                Cliquez sur une cellule pour modifier • Boutons de nettoyage des valeurs "null"
+                <strong>Saisie optimisée :</strong> Position maintenue lors de la validation • 
+                Navigation au clavier • Première ligne et colonne figées pour faciliter la saisie
               </span>
             </div>
           </div>
