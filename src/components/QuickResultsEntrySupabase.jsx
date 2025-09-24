@@ -70,7 +70,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
   // États pour la saisie en lot - 100% REACT - AUCUNE REF
   const [inputValues, setInputValues] = useState({}); // UNIQUE source de vérité
   const [savingProgress, setSavingProgress] = useState(0);
-  const [focusedInput, setFocusedInput] = useState(null); // Track du focus pour navigation
   
   // États pour le mot de passe et changement d'année
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -78,18 +77,13 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
   const [passwordError, setPasswordError] = useState('');
   const [pendingYear, setPendingYear] = useState(null);
 
-  // Navigation au clavier - VERSION SIMPLIFIÉE AVEC useState
+  // Navigation au clavier - DÉSACTIVÉE TEMPORAIREMENT POUR ÉVITER LES CONFLITS
   const handleKeyDown = (e, currentIndex, filteredStudents) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      
-      // Passer au suivant
-      const nextIndex = currentIndex + 1;
-      if (nextIndex < filteredStudents.length) {
-        const nextStudentId = filteredStudents[nextIndex].id;
-        setFocusedInput(nextStudentId);
-      }
-    }
+    // Temporairement désactivé pour debugging
+    // if (e.key === 'Enter') {
+    //   e.preventDefault();
+    //   // Navigation désactivée pour éviter les conflits de focus
+    // }
   };
 
   // Gestion du changement de valeur - 100% REACT
@@ -100,28 +94,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     }));
   };
 
-  // Focus automatique sur le premier champ
-  useEffect(() => {
-    if (mode === 'mass-entry' && students.length > 0) {
-      // Focus automatique sur le premier élève après un délai
-      setTimeout(() => {
-        if (students[0]) {
-          setFocusedInput(students[0].id);
-        }
-      }, 300);
-    }
-  }, [mode, students]);
-
-  // Gestion du focus avec effet
-  useEffect(() => {
-    if (focusedInput) {
-      const input = document.querySelector(`input[data-student-id="${focusedInput}"]`);
-      if (input) {
-        input.focus();
-        input.select();
-      }
-    }
-  }, [focusedInput]);
+  // Suppression de la gestion automatique du focus - laissons le navigateur gérer
 
   // Chargement initial (rechargement quand l'année change)
   useEffect(() => {
@@ -828,7 +801,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     const clearAllResults = () => {
       // Vider SEULEMENT l'état React - aucune manipulation DOM
       setInputValues({});
-      setFocusedInput(null);
     };
 
     const completedCount = getCompletedCount();
@@ -931,17 +903,17 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
           </div>
 
           {/* Instructions */}
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center justify-center space-x-6 text-sm text-green-700">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center justify-center space-x-6 text-sm text-yellow-700">
               <div className="flex items-center space-x-2">
-                <CheckCircle size={16} />
-                <span><strong>100% REACT PUR</strong> - Aucune ref, aucun conflit</span>
+                <AlertCircle size={16} />
+                <span><strong>MODE DEBUG</strong> - Navigation au clavier temporairement désactivée</span>
               </div>
               <div className="flex items-center space-x-2">
-                <kbd className="px-2 py-1 bg-green-200 rounded text-xs">Entrée</kbd>
-                <span>Élève suivant</span>
+                <kbd className="px-2 py-1 bg-yellow-200 rounded text-xs">Tab</kbd>
+                <span>Utilisez Tab pour naviguer entre les champs</span>
               </div>
-              <div className="text-xs">Saisie fluide garantie</div>
+              <div className="text-xs">Test de saisie sans conflit de focus</div>
             </div>
           </div>
 
@@ -996,7 +968,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     </div>
                   )}
 
-                  {/* INPUT 100% REACT - AUCUNE REF, AUCUN CONFLIT */}
+                  {/* INPUT 100% REACT - ULTRA-SIMPLIFIÉ */}
                   <div className="space-y-2">
                     <input
                       type="number"
@@ -1004,7 +976,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                       value={inputValue}
                       onChange={(e) => handleInputChange(student.id, e.target.value)}
                       onKeyDown={(e) => handleKeyDown(e, index, filteredStudents)}
-                      onFocus={() => setFocusedInput(student.id)}
                       data-student-id={student.id}
                       placeholder={
                         selectedTest.unit === 'sec' && 
