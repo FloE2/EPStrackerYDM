@@ -69,7 +69,7 @@ const IndividualFitnessCard = () => {
   // Fonction CORRIGÉE pour déterminer la direction du test
   const getTestDirection = (testName) => {
     // Tests où un TEMPS plus faible est meilleur (mesurés en secondes)
-    const timeBasedTests = ['SPRINTS 10 x 5', '30 mètres'];
+    const timeBasedTests = ['SPRINTS 10 x 5', '30 mètres','FLAMINGO'];
     
     // Tests où une VITESSE plus élevée est meilleure (mesurés en km/h, m/s)
     const speedBasedTests = ['36"-24"', 'VITESSE'];
