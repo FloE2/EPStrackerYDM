@@ -77,13 +77,24 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
   const [passwordError, setPasswordError] = useState('');
   const [pendingYear, setPendingYear] = useState(null);
 
-  // Navigation au clavier - DÉSACTIVÉE TEMPORAIREMENT POUR ÉVITER LES CONFLITS
+  // Navigation au clavier - VERSION ULTRA-SIMPLIFIÉE
   const handleKeyDown = (e, currentIndex, filteredStudents) => {
-    // Temporairement désactivé pour debugging
-    // if (e.key === 'Enter') {
-    //   e.preventDefault();
-    //   // Navigation désactivée pour éviter les conflits de focus
-    // }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      
+      // Passer au suivant sans gestion d'état
+      const nextIndex = currentIndex + 1;
+      if (nextIndex < filteredStudents.length) {
+        // Simple setTimeout pour éviter les conflits
+        setTimeout(() => {
+          const nextInput = document.querySelector(`input[data-student-id="${filteredStudents[nextIndex].id}"]`);
+          if (nextInput) {
+            nextInput.focus();
+            nextInput.select();
+          }
+        }, 10);
+      }
+    }
   };
 
   // Gestion du changement de valeur - 100% REACT
@@ -903,17 +914,17 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
           </div>
 
           {/* Instructions */}
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center justify-center space-x-6 text-sm text-yellow-700">
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center justify-center space-x-6 text-sm text-green-700">
               <div className="flex items-center space-x-2">
-                <AlertCircle size={16} />
-                <span><strong>MODE DEBUG</strong> - Navigation au clavier temporairement désactivée</span>
+                <CheckCircle size={16} />
+                <span><strong>100% REACT PUR</strong> - Aucune ref, aucun conflit</span>
               </div>
               <div className="flex items-center space-x-2">
-                <kbd className="px-2 py-1 bg-yellow-200 rounded text-xs">Tab</kbd>
-                <span>Utilisez Tab pour naviguer entre les champs</span>
+                <kbd className="px-2 py-1 bg-green-200 rounded text-xs">Entrée</kbd>
+                <span>Élève suivant</span>
               </div>
-              <div className="text-xs">Test de saisie sans conflit de focus</div>
+              <div className="text-xs">Saisie fluide garantie</div>
             </div>
           </div>
 

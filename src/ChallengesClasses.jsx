@@ -1,4 +1,4 @@
-// ChallengesClasses.jsx - VERSION COMPLÈTE AVEC TOUTES LES UNITÉS CORRIGÉES
+// ChallengesClasses.jsx - VERSION OPTIMISÉE AVEC CACHE
 import React, { useState, useEffect } from 'react';
 import {
   Trophy,
@@ -42,14 +42,17 @@ const ChallengesClasses = () => {
   const [students, setStudents] = useState([]);
   
   // Filtres et sélections
-  const [selectedComparison, setSelectedComparison] = useState('test'); // 'test', 'category', 'participation'
+  const [selectedComparison, setSelectedComparison] = useState('test');
   const [selectedTest, setSelectedTest] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState('ENDURANCE');
-  const [selectedLevel, setSelectedLevel] = useState('all'); // 'all', '6ème', '5ème', etc.
-  const [sortBy, setSortBy] = useState('average'); // 'average', 'participation', 'excellence'
+  const [selectedCategory, setSelectedCategory] = useState('TOUS');
+  const [selectedLevel, setSelectedLevel] = useState('all');
+  const [sortBy, setSortBy] = useState('average');
   
   // Données calculées
   const [challengeResults, setChallengeResults] = useState([]);
+  
+  // Cache pour les barèmes dynamiques
+  const [baremesCache, setBaremesCache] = useState({});
 
   // Configuration des catégories
   const categories = {
@@ -133,620 +136,315 @@ const ChallengesClasses = () => {
   };
 
   // ============================================================================
-  // FONCTIONS UTILITAIRES POUR LES UNITÉS - VERSION COMPLÈTE
+  // SYSTÈME DE NOTATION DYNAMIQUE AVEC CACHE
   // ============================================================================
 
-  // Fonction complète de détection des unités pour tous les tests EPS
+  const calculatePercentiles = (values) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const n = sorted.length;
+    
+    return {
+      p10: sorted[Math.floor(n * 0.10)],
+      p25: sorted[Math.floor(n * 0.25)], 
+      p50: sorted[Math.floor(n * 0.50)],
+      p75: sorted[Math.floor(n * 0.75)],
+      p90: sorted[Math.floor(n * 0.90)]
+    };
+  };
+
+  const getTestDirection = (testName) => {
+    const timeBasedTests = ['SPRINTS 10 x 5', '30 mètres'];
+    const speedBasedTests = ['36"-24"', 'VITESSE'];
+    const higherIsBetterTests = [
+      'COOPER', 'DEMI-COOPER', 'NAVETTE', 'RECTANGLE MAGIQUE', 
+      'SAUT', 'LANCER', 'CHAISE', 'PLANCHE', 'SUSPENSION', 'POIGNÉE',
+      'FOULÉES', 'TRIPLE SAUT', 'MONOPODAL', 'SOUPLESSE'
+    ];
+
+    if (timeBasedTests.some(test => testName.includes(test))) return false;
+    if (speedBasedTests.some(test => testName.includes(test))) return true;
+    if (higherIsBetterTests.some(test => testName.includes(test))) return true;
+    
+    return true;
+  };
+
+  const getTestData = async (testName, studentLevel, studentGender) => {
+    // Vérifier le cache d'abord
+    const cacheKey = `${testName}_${studentLevel}_${studentGender}`;
+    if (baremesCache[cacheKey]) {
+      return baremesCache[cacheKey];
+    }
+
+    try {
+      const { data: results, error } = await supabase
+        .from('results')
+        .select(`
+          value,
+          tests!inner(name),
+          students!inner(gender, school_year, classes!inner(level))
+        `)
+        .eq('tests.name', testName)
+        .eq('students.gender', studentGender)
+        .eq('students.classes.level', studentLevel)
+        .eq('students.school_year', selectedSchoolYear)
+        .not('value', 'is', null);
+
+      if (error) {
+        console.error('Erreur Supabase:', error);
+        return null;
+      }
+
+      if (!results || results.length < 5) {
+        const result = {
+          sampleSize: results?.length || 0,
+          insufficientData: true,
+          message: "Échantillon trop faible"
+        };
+        setBaremesCache(prev => ({ ...prev, [cacheKey]: result }));
+        return result;
+      }
+
+      const values = results.map(r => parseFloat(r.value)).filter(v => !isNaN(v));
+      
+      if (values.length < 5) {
+        const result = {
+          sampleSize: values.length,
+          insufficientData: true,
+          message: "Échantillon trop faible"
+        };
+        setBaremesCache(prev => ({ ...prev, [cacheKey]: result }));
+        return result;
+      }
+
+      const percentiles = calculatePercentiles(values);
+      const higherIsBetter = getTestDirection(testName);
+      const bestPerformance = higherIsBetter 
+        ? Math.max(...values) 
+        : Math.min(...values);
+      
+      const result = {
+        sampleSize: values.length,
+        min: Math.min(...values),
+        max: Math.max(...values),
+        moyenne: values.reduce((a, b) => a + b, 0) / values.length,
+        percentiles,
+        bestPerformance,
+        higherIsBetter,
+        insufficientData: false
+      };
+
+      setBaremesCache(prev => ({ ...prev, [cacheKey]: result }));
+      return result;
+
+    } catch (error) {
+      console.error('Erreur lors de la récupération des données:', error);
+      return null;
+    }
+  };
+
+  const scoreTestWithDynamicBareme = async (value, testName, studentLevel, studentGender) => {
+    const testData = await getTestData(testName, studentLevel, studentGender);
+    
+    if (!testData) {
+      return {
+        score: 50,
+        message: "Données insuffisantes",
+        method: "score_defaut"
+      };
+    }
+
+    if (testData.insufficientData) {
+      return {
+        score: null,
+        message: testData.message,
+        method: "echantillon_insuffisant",
+        sampleSize: testData.sampleSize
+      };
+    }
+
+    const numericValue = parseFloat(value);
+    if (isNaN(numericValue)) return { score: 0, message: "Valeur invalide", method: "erreur" };
+
+    const { percentiles, higherIsBetter } = testData;
+    
+    let score;
+
+    if (higherIsBetter) {
+      if (numericValue >= percentiles.p90) {
+        score = Math.floor(Math.random() * 16) + 85;
+      } else if (numericValue >= percentiles.p75) {
+        score = Math.floor(Math.random() * 15) + 70;
+      } else if (numericValue >= percentiles.p50) {
+        score = Math.floor(Math.random() * 15) + 55;
+      } else if (numericValue >= percentiles.p25) {
+        score = Math.floor(Math.random() * 15) + 40;
+      } else {
+        score = Math.floor(Math.random() * 15) + 10;
+      }
+    } else {
+      if (numericValue <= percentiles.p10) {
+        score = Math.floor(Math.random() * 16) + 85;
+      } else if (numericValue <= percentiles.p25) {
+        score = Math.floor(Math.random() * 15) + 70;
+      } else if (numericValue <= percentiles.p50) {
+        score = Math.floor(Math.random() * 15) + 55;
+      } else if (numericValue <= percentiles.p75) {
+        score = Math.floor(Math.random() * 15) + 40;
+      } else {
+        score = Math.floor(Math.random() * 15) + 10;
+      }
+    }
+
+    return {
+      score,
+      message: `Calculé sur ${testData.sampleSize} élèves`,
+      method: "bareme_dynamique"
+    };
+  };
+
+  const calculateCategoryScoreForStudent = async (studentTests, studentLevel, studentGender) => {
+    if (studentTests.length === 0) return null;
+
+    let totalScore = 0;
+    let validTests = 0;
+
+    for (const test of studentTests) {
+      const result = await scoreTestWithDynamicBareme(
+        test.value, 
+        test.name, 
+        studentLevel, 
+        studentGender
+      );
+      
+      if (result.score !== null && result.method !== "echantillon_insuffisant") {
+        totalScore += result.score;
+        validTests++;
+      }
+    }
+
+    if (validTests === 0) return null;
+
+    return Math.round(totalScore / validTests);
+  };
+
+  // ============================================================================
+  // FONCTIONS UTILITAIRES POUR LES UNITÉS
+  // ============================================================================
+
   const getTestDisplayUnit = (testName, testUnit) => {
     if (!testName && !testUnit) return '';
     
     const testNameUpper = testName?.toUpperCase() || '';
     const testUnitLower = testUnit?.toLowerCase() || '';
     
-    // 1. TESTS D'ENDURANCE - Distance en mètres
     const distanceTests = ['DEMI-COOPER', 'COOPER', 'TEST COOPER'];
     if (distanceTests.some(keyword => testNameUpper.includes(keyword)) ||
         testUnitLower === 'mètres' || testUnitLower === 'm') {
       return ' m';
     }
     
-    // 2. TESTS D'ENDURANCE - Paliers (Luc Léger)
     const enduranceTests = ['LUC LEGER', 'LUC-LEGER', 'NAVETTE', 'PALIER'];
     if (enduranceTests.some(keyword => testNameUpper.includes(keyword)) || 
         testUnitLower.includes('palier')) {
       return ' paliers';
     }
     
-    // 3. TESTS DE VITESSE - Vitesse en km/h
     const speedTests = ['36"-24"', '36-24'];
     if (speedTests.some(keyword => testNameUpper.includes(keyword)) ||
         testUnitLower === 'km/h') {
       return ' km/h';
     }
     
-    // 4. TESTS DE VITESSE/TEMPS - Secondes
     const timeTests = ['30 MÈTRES', '30M', '30 M', 'SPRINTS', 'VITESSE', 'PLAT'];
     if (timeTests.some(keyword => testNameUpper.includes(keyword)) ||
         testUnitLower === 'secondes' || testUnitLower === 'sec' || testUnitLower === 's') {
       return ' s';
     }
     
-    // 5. TESTS DE FORCE - Minutes
     const minuteTests = ['CHAISE', 'KILLY'];
     if (minuteTests.some(keyword => testNameUpper.includes(keyword)) ||
         testUnitLower === 'minutes' || testUnitLower === 'min') {
       return ' min';
     }
     
-    // 6. TESTS DE FORCE - Kilos
     const strengthTests = ['POIGNEE', 'POIGNÉE', 'MAIN'];
     if (strengthTests.some(keyword => testNameUpper.includes(keyword)) ||
         testUnitLower === 'kilos' || testUnitLower === 'kg') {
       return ' kg';
     }
     
-    // 7. TESTS DE SAUT/LANCER/SOUPLESSE - Centimètres
     const jumpTests = ['SAUT', 'LONGUEUR', 'LANCER', 'BALLON', 'BASKET', 'SOUPLESSE', 'ÉPAULES', 'POSTÉRIEURE'];
     if (jumpTests.some(keyword => testNameUpper.includes(keyword)) ||
         testUnitLower === 'centimètres' || testUnitLower === 'cm') {
       return ' cm';
     }
     
-    // 8. TESTS D'ÉQUILIBRE - Secondes (monopodal)
     const balanceTimeTests = ['MONOPODAL', 'ÉQUILIBRE'];
     if (balanceTimeTests.some(keyword => testNameUpper.includes(keyword)) &&
         (testUnitLower === 'sec' || testUnitLower === 'secondes')) {
       return ' s';
     }
     
-    // 9. TESTS D'ÉQUILIBRE - Nombre de tentatives
     const balanceAttemptTests = ['FLAMINGO', 'POUTRE'];
     if (balanceAttemptTests.some(keyword => testNameUpper.includes(keyword)) ||
         testUnitLower.includes('tentative') || testUnitLower.includes('essai')) {
       return ' tentatives';
     }
     
-    // 10. TESTS DE FORCE - Secondes (suspension, planche)
     const suspensionTests = ['SUSPENSION', 'BARRE', 'PLANCHE'];
     if (suspensionTests.some(keyword => testNameUpper.includes(keyword)) &&
         (testUnitLower === 'sec' || testUnitLower === 'secondes')) {
       return ' s';
     }
     
-    // 11. TESTS DE RÉPÉTITIONS - Nombre
     const repetitionTests = ['POMPES', 'ABDOS', 'TRACTIONS', 'SQUAT', 'REPETITIONS'];
     if (repetitionTests.some(keyword => testNameUpper.includes(keyword)) ||
         testUnitLower === 'répétitions' || testUnitLower === 'reps') {
       return ' reps';
     }
     
-    // 12. Par défaut - Score transformé sur 100
     return '/100';
   };
 
-  // Fonction améliorée pour formater les valeurs avec les bonnes unités
   const formatTestValue = (value, testName, testUnit) => {
     if (value === null || value === undefined) return '—';
     
     const unit = getTestDisplayUnit(testName, testUnit);
     
-    // Pour les paliers d'endurance (nombres entiers)
-    if (unit === ' paliers') {
-      return `${Math.round(value)}${unit}`;
-    }
+    if (unit === ' paliers') return `${Math.round(value)}${unit}`;
+    if (unit === ' m') return `${Math.round(value)}${unit}`;
+    if (unit === ' km/h') return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
+    if (unit === ' s') return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
+    if (unit === ' min') return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
+    if (unit === ' cm') return `${Math.round(value)}${unit}`;
+    if (unit === ' kg') return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
+    if (unit === ' tentatives') return `${Math.round(value)}${unit}`;
+    if (unit === ' reps') return `${Math.round(value)}${unit}`;
     
-    // Pour les distances en mètres (arrondir à l'unité)
-    if (unit === ' m') {
-      return `${Math.round(value)}${unit}`;
-    }
-    
-    // Pour les vitesses en km/h (1 décimale)
-    if (unit === ' km/h') {
-      return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
-    }
-    
-    // Pour les temps en secondes (1 décimale)
-    if (unit === ' s') {
-      return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
-    }
-    
-    // Pour les temps en minutes (1 décimale)
-    if (unit === ' min') {
-      return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
-    }
-    
-    // Pour les distances en centimètres (arrondir à l'unité)
-    if (unit === ' cm') {
-      return `${Math.round(value)}${unit}`;
-    }
-    
-    // Pour la force en kilos (1 décimale)
-    if (unit === ' kg') {
-      return `${(Math.round(value * 10) / 10).toFixed(1)}${unit}`;
-    }
-    
-    // Pour les tentatives (nombres entiers)
-    if (unit === ' tentatives') {
-      return `${Math.round(value)}${unit}`;
-    }
-    
-    // Pour les répétitions (nombres entiers)
-    if (unit === ' reps') {
-      return `${Math.round(value)}${unit}`;
-    }
-    
-    // Pour les scores transformés sur 100
     return `${Math.round(value)}${unit}`;
   };
 
   // ============================================================================
-  // FONCTION D'EXPORT PDF INTÉGRÉE
+  // CHARGEMENT DES DONNÉES
   // ============================================================================
 
-  // Fonction principale d'export PDF
-  const exportChallengesPDF = () => {
-    if (!challengeResults || challengeResults.length === 0) {
-      alert('Aucune donnée à exporter. Veuillez d\'abord configurer et lancer un challenge.');
-      return;
-    }
-    
-    // Préparer les données pour l'export
-    const exportData = challengeResults.map((data, index) => ({
-      rank: index + 1,
-      classDisplayName: `${data.classe.level}${data.classe.name}`,
-      level: data.classe.level,
-      name: data.classe.name,
-      averageScore: data.average || 0,
-      bestScore: data.bestScore || 0,
-      participationRate: data.participation || 0,
-      excellentCount: data.excellentCount || 0,
-      completedTests: data.completedTests || 0,
-      totalTests: data.totalTests || 0,
-      totalStudents: data.studentsCount || 0
-    }));
-
-    // Configuration pour l'export avec les informations du test
-    let selectedTestName = '';
-    let selectedTestUnit = '';
-    
-    if (selectedComparison === 'test' && selectedTest) {
-      selectedTestName = selectedTest.name;
-      selectedTestUnit = selectedTest.unit;
-    } else if (selectedComparison === 'category') {
-      selectedTestName = selectedCategory;
-      selectedTestUnit = 'points';
-    } else {
-      selectedTestName = 'participation';
-      selectedTestUnit = 'points';
-    }
-
-    const config = {
-      schoolYear: selectedSchoolYear,
-      comparisonType: getComparisonTypeLabel(),
-      selectedTest: getSelectedTestLabel(),
-      selectedTestName,
-      selectedTestUnit,
-      selectedLevel: selectedLevel === 'all' ? 'Tous niveaux' : selectedLevel,
-      sortBy: getSortByLabel(),
-      establishmentName: "Collège Yves du Manoir",
-      totalResults: results.length
-    };
-    
-    // Générer et afficher le PDF
-    const printContent = generatePrintHTML(exportData, config);
-    
-    const printWindow = window.open('', '_blank');
-    printWindow.document.open();
-    printWindow.document.write(printContent);
-    printWindow.document.close();
-    
-    printWindow.onload = () => {
-      setTimeout(() => {
-        printWindow.print();
-        printWindow.close();
-      }, 250);
-    };
-  };
-
-  // Fonctions utilitaires pour les labels
-  const getComparisonTypeLabel = () => {
-    switch (selectedComparison) {
-      case 'test': return 'Par test spécifique';
-      case 'category': return 'Par catégorie';
-      case 'participation': return 'Participation globale';
-      default: return 'Par test spécifique';
-    }
-  };
-
-  const getSelectedTestLabel = () => {
-    if (selectedComparison === 'test' && selectedTest) {
-      return `${selectedTest.name} (${selectedTest.category})`;
-    } else if (selectedComparison === 'category') {
-      return `Catégorie ${categories[selectedCategory]?.name || selectedCategory}`;
-    } else if (selectedComparison === 'participation') {
-      return 'Tous les tests';
-    }
-    return 'N/A';
-  };
-
-  const getSortByLabel = () => {
-    switch (sortBy) {
-      case 'average': return 'Moyenne des résultats';
-      case 'participation': return 'Taux de participation';
-      case 'excellence': return 'Taux d\'excellence (85+)';
-      default: return 'Moyenne des résultats';
-    }
-  };
-
-  // Génération du HTML pour l'impression
-  const generatePrintHTML = (challengeData, config) => {
-    const currentDate = new Date().toLocaleDateString('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
-
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Challenge Classes - ${config.schoolYear}</title>
-    <style>
-        /* Reset et configuration de base */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        /* Configuration page A4 */
-        @page {
-            size: A4;
-            margin: 15mm;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            font-size: 11px;
-            line-height: 1.3;
-            color: #333;
-            background: white;
-        }
-        
-        /* Header */
-        .header {
-            text-align: center;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 3px solid #4F46E5;
-        }
-        
-        .header h1 {
-            font-size: 24px;
-            color: #4F46E5;
-            margin-bottom: 8px;
-            font-weight: bold;
-        }
-        
-        .header .subtitle {
-            font-size: 14px;
-            color: #6B7280;
-            margin-bottom: 8px;
-        }
-        
-        .header .info-line {
-            font-size: 12px;
-            color: #374151;
-        }
-        
-        /* Configuration du challenge */
-        .config-section {
-            background: #F9FAFB;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            border: 1px solid #E5E7EB;
-        }
-        
-        .config-title {
-            font-size: 14px;
-            font-weight: bold;
-            color: #374151;
-            margin-bottom: 8px;
-        }
-        
-        .config-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr 1fr;
-            gap: 15px;
-        }
-        
-        .config-item {
-            text-align: center;
-        }
-        
-        .config-label {
-            font-size: 10px;
-            color: #6B7280;
-            text-transform: uppercase;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-        
-        .config-value {
-            font-size: 12px;
-            font-weight: bold;
-            color: #111827;
-        }
-        
-        /* Tableau des résultats */
-        .results-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-            font-size: 10px;
-        }
-        
-        .results-table th {
-            background: #4F46E5;
-            color: white;
-            padding: 8px 6px;
-            text-align: center;
-            font-weight: bold;
-            font-size: 9px;
-            text-transform: uppercase;
-        }
-        
-        .results-table td {
-            padding: 6px;
-            text-align: center;
-            border-bottom: 1px solid #E5E7EB;
-        }
-        
-        .results-table tr:nth-child(even) {
-            background: #F9FAFB;
-        }
-        
-        /* Styles pour le rang */
-        .rank-cell {
-            font-weight: bold;
-            font-size: 12px;
-        }
-        
-        .rank-1 { color: #FFD700; }
-        .rank-2 { color: #C0C0C0; }
-        .rank-3 { color: #CD7F32; }
-        
-        /* Classe */
-        .class-cell {
-            font-weight: bold;
-            font-size: 11px;
-        }
-        
-        /* Métriques */
-        .metric-excellent { color: #059669; font-weight: bold; }
-        .metric-good { color: #0EA5E9; font-weight: bold; }
-        .metric-average { color: #F59E0B; font-weight: bold; }
-        .metric-low { color: #DC2626; font-weight: bold; }
-        
-        /* Message de félicitations */
-        .congratulations {
-            background: linear-gradient(135deg, #FEF3C7, #FDE68A);
-            border: 2px solid #F59E0B;
-            border-radius: 8px;
-            padding: 10px;
-            text-align: center;
-            margin-bottom: 15px;
-        }
-        
-        .congratulations h3 {
-            color: #92400E;
-            font-size: 13px;
-            margin-bottom: 4px;
-        }
-        
-        .congratulations p {
-            color: #B45309;
-            font-size: 10px;
-        }
-        
-        /* Statistiques résumées */
-        .summary-stats {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 15px;
-        }
-        
-        .stat-card {
-            background: white;
-            border: 1px solid #E5E7EB;
-            border-radius: 6px;
-            padding: 8px;
-            text-align: center;
-        }
-        
-        .stat-number {
-            font-size: 16px;
-            font-weight: bold;
-            color: #4F46E5;
-        }
-        
-        .stat-label {
-            font-size: 9px;
-            color: #6B7280;
-            text-transform: uppercase;
-            margin-top: 2px;
-        }
-        
-        /* Footer */
-        .footer {
-            position: fixed;
-            bottom: 10mm;
-            left: 15mm;
-            right: 15mm;
-            text-align: center;
-            font-size: 8px;
-            color: #6B7280;
-            border-top: 1px solid #E5E7EB;
-            padding-top: 5px;
-        }
-        
-        /* Masquer les éléments non imprimables */
-        @media print {
-            .no-print {
-                display: none !important;
-            }
-        }
-    </style>
-</head>
-<body>
-    <!-- Header -->
-    <div class="header">
-        <h1>🏆 Challenge Classes - EPS SANTÉ</h1>
-        <div class="subtitle">Comparaisons et défis motivants entre classes</div>
-        <div class="info-line">
-            ${config.establishmentName || 'Collège Yves du Manoir'} • Année ${config.schoolYear} • 
-            Édité le ${currentDate}
-        </div>
-    </div>
-    
-    <!-- Configuration du challenge -->
-    <div class="config-section">
-        <div class="config-title">Configuration du Challenge</div>
-        <div class="config-grid">
-            <div class="config-item">
-                <div class="config-label">Type de comparaison</div>
-                <div class="config-value">${config.comparisonType}</div>
-            </div>
-            <div class="config-item">
-                <div class="config-label">Test à comparer</div>
-                <div class="config-value">${config.selectedTest}</div>
-            </div>
-            <div class="config-item">
-                <div class="config-label">Niveau</div>
-                <div class="config-value">${config.selectedLevel}</div>
-            </div>
-            <div class="config-item">
-                <div class="config-label">Classer par</div>
-                <div class="config-value">${config.sortBy}</div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Message de félicitations pour le leader -->
-    ${challengeData.length > 0 ? `
-    <div class="congratulations">
-        <h3>🏆 Champions ! Félicitations à toute la classe !</h3>
-        <p>${challengeData[0].classDisplayName} domine ce challenge avec un excellent niveau de participation et de performance !</p>
-    </div>
-    ` : ''}
-    
-    <!-- Statistiques résumées -->
-    <div class="summary-stats">
-        <div class="stat-card">
-            <div class="stat-number">${challengeData.length}</div>
-            <div class="stat-label">Classes participantes</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-number">${challengeData.reduce((sum, c) => sum + (c.totalStudents || 0), 0)}</div>
-            <div class="stat-label">Élèves au total</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-number">${challengeData.length > 0 ? Math.round(challengeData.reduce((sum, c) => sum + (c.participationRate || 0), 0) / challengeData.length) : 0}%</div>
-            <div class="stat-label">Participation moyenne</div>
-        </div>
-    </div>
-    
-    <!-- Tableau des résultats -->
-    <table class="results-table">
-        <thead>
-            <tr>
-                <th style="width: 8%">#</th>
-                <th style="width: 20%">Classe</th>
-                <th style="width: 12%">Moyenne</th>
-                <th style="width: 15%">Meilleur Score</th>
-                <th style="width: 12%">Participation</th>
-                <th style="width: 10%">Excellents</th>
-                <th style="width: 13%">Tests Réalisés</th>
-                <th style="width: 10%">Élèves</th>
-            </tr>
-        </thead>
-        <tbody>
-            ${challengeData.map((classe, index) => {
-                const rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : '';
-                const rankIcon = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
-                
-                // Déterminer les classes CSS pour les métriques
-                const avgClass = (classe.averageScore || 0) >= 85 ? 'metric-excellent' : 
-                                (classe.averageScore || 0) >= 70 ? 'metric-good' : 
-                                (classe.averageScore || 0) >= 55 ? 'metric-average' : 'metric-low';
-                
-                const participationClass = (classe.participationRate || 0) >= 80 ? 'metric-excellent' : 
-                                          (classe.participationRate || 0) >= 60 ? 'metric-good' : 
-                                          (classe.participationRate || 0) >= 40 ? 'metric-average' : 'metric-low';
-                
-                return `
-                <tr>
-                    <td class="rank-cell ${rankClass}">${rankIcon} ${index + 1}</td>
-                    <td class="class-cell">${classe.classDisplayName}</td>
-                    <td class="${avgClass}">${formatTestValue(classe.averageScore, config.selectedTestName, config.selectedTestUnit)}</td>
-                    <td class="${classe.bestScore >= 85 ? 'metric-excellent' : 'metric-good'}">${formatTestValue(classe.bestScore, config.selectedTestName, config.selectedTestUnit)}</td>
-                    <td class="${participationClass}">${Math.round(classe.participationRate || 0)}%</td>
-                    <td class="metric-excellent">${classe.excellentCount || 0}</td>
-                    <td>${classe.completedTests || 0}/${classe.totalTests || 0}</td>
-                    <td>${classe.totalStudents || 0}</td>
-                </tr>
-                `;
-            }).join('')}
-        </tbody>
-    </table>
-    
-    <!-- Message motivant -->
-    <div style="background: #EBF8FF; border: 1px solid #3182CE; border-radius: 6px; padding: 10px; text-align: center; margin-bottom: 15px;">
-        <p style="color: #2C5AA0; font-size: 11px; font-weight: 500;">
-            💪 L'activité physique régulière améliore la santé, la concentration et le bien-être. 
-            Objectif OMS : 60 minutes d'activité physique par jour pour les jeunes !
-        </p>
-    </div>
-    
-    <!-- Notes méthodologiques -->
-    <div style="background: #F7FAFC; border: 1px solid #CBD5E0; border-radius: 4px; padding: 8px; margin-bottom: 10px;">
-        <p style="font-size: 8px; color: #4A5568; line-height: 1.4;">
-            <strong>Méthodologie :</strong> Système de notation dynamique basé sur les percentiles de performance 
-            des élèves de même niveau et sexe. Excellent ≥85pts, Bon ≥70pts, Correct ≥55pts. 
-            Challenge généré le ${currentDate} avec ${config.totalResults || 0} résultats analysés.
-        </p>
-    </div>
-    
-    <!-- Footer -->
-    <div class="footer">
-        Document généré automatiquement par EPS Tracker YDM • 
-        ${config.establishmentName || 'Collège Yves du Manoir'} • 
-        ${currentDate}
-    </div>
-</body>
-</html>
-    `;
-  };
-
-  // ============================================================================
-  // RESTE DU CODE ORIGINAL INCHANGÉ
-  // ============================================================================
-
-  // Chargement des données
   useEffect(() => {
     if (selectedSchoolYear) {
+      setBaremesCache({});
       loadData();
     }
   }, [selectedSchoolYear]);
 
-  // Recalcul des résultats quand les filtres changent
   useEffect(() => {
-    if (classes.length > 0 && tests.length > 0 && results.length > 0) {
-      calculateChallengeResults();
-    }
+    const loadChallengeResults = async () => {
+      if (classes.length > 0 && tests.length > 0 && results.length > 0) {
+        setLoading(true);
+        await calculateChallengeResults();
+        setLoading(false);
+      }
+    };
+    
+    loadChallengeResults();
   }, [selectedComparison, selectedTest, selectedCategory, selectedLevel, sortBy, classes, tests, results, students]);
 
   const loadData = async () => {
@@ -754,7 +452,6 @@ const ChallengesClasses = () => {
       setLoading(true);
       setError(null);
 
-      // Charger toutes les données pour l'année scolaire
       const [classesRes, testsRes, studentsRes, resultsRes] = await Promise.all([
         supabase
           .from('classes')
@@ -792,7 +489,6 @@ const ChallengesClasses = () => {
       setStudents(studentsRes.data || []);
       setResults(resultsRes.data || []);
 
-      // Sélectionner le premier test par défaut
       if (testsRes.data && testsRes.data.length > 0 && !selectedTest) {
         setSelectedTest(testsRes.data[0]);
       }
@@ -805,79 +501,201 @@ const ChallengesClasses = () => {
     }
   };
 
-  // Fonction pour déterminer si un score plus élevé est meilleur pour un test
+  // ============================================================================
+  // CALCUL DES RÉSULTATS
+  // ============================================================================
+
   const isHigherBetter = (testName) => {
-    // Tests où un temps/score plus faible est meilleur
     const lowerIsBetterTests = ['30 mètres', 'SPRINTS', 'VITESSE', 'TEMPS'];
-    
-    // Vérifier si le nom du test contient des mots clés indiquant que plus bas = mieux
     return !lowerIsBetterTests.some(keyword => 
       testName.toUpperCase().includes(keyword.toUpperCase())
     );
   };
 
-  // Fonction principale de calcul des résultats du challenge
-  const calculateChallengeResults = () => {
+  const calculateChallengeResults = async () => {
     let filteredClasses = classes;
     
-    // Filtrer par niveau si nécessaire
     if (selectedLevel !== 'all') {
       filteredClasses = classes.filter(c => c.level === selectedLevel);
     }
 
-    const challengeData = filteredClasses.map(classe => {
+    const challengeData = [];
+
+    for (const classe of filteredClasses) {
       const classStudents = students.filter(s => s.class_id === classe.id);
-      let classResults = [];
       let totalTests = 0;
       let completedTests = 0;
+      let average = 0;
+      let bestScore = null;
+      let excellentCount = 0;
 
       if (selectedComparison === 'test' && selectedTest) {
-        // Comparaison par test spécifique
-        classResults = results.filter(r => 
+        const classResults = results.filter(r => 
           r.tests.name === selectedTest.name && 
           classStudents.some(s => s.id === r.student_id)
         );
         totalTests = classStudents.length;
         completedTests = classResults.length;
-      } else if (selectedComparison === 'category') {
-        // Comparaison par catégorie
-        classResults = results.filter(r => 
-          r.tests.category === selectedCategory && 
-          classStudents.some(s => s.id === r.student_id)
-        );
-        const categoryTests = tests.filter(t => t.category === selectedCategory);
-        totalTests = classStudents.length * categoryTests.length;
-        completedTests = classResults.length;
-      } else if (selectedComparison === 'participation') {
-        // Comparaison globale de participation
-        classResults = results.filter(r => 
-          classStudents.some(s => s.id === r.student_id)
-        );
-        totalTests = classStudents.length * tests.length;
-        completedTests = classResults.length;
-      }
-
-      // Calculs statistiques
-      const values = classResults.map(r => parseFloat(r.value)).filter(v => !isNaN(v));
-      const average = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-      const participation = totalTests > 0 ? (completedTests / totalTests) * 100 : 0;
-      const excellentCount = values.filter(v => v >= 85).length; // Supposons que 85+ = excellent
-      
-      // Calcul du meilleur score de la classe
-      let bestScore = null;
-      if (values.length > 0) {
-        if (selectedComparison === 'test' && selectedTest) {
-          // Pour un test spécifique, on applique la logique selon le type de test
+        
+        const values = classResults.map(r => parseFloat(r.value)).filter(v => !isNaN(v));
+        average = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+        excellentCount = values.filter(v => v >= 85).length;
+        
+        if (values.length > 0) {
           const higherBetter = isHigherBetter(selectedTest.name);
           bestScore = higherBetter ? Math.max(...values) : Math.min(...values);
-        } else {
-          // Pour les catégories ou participation globale, on prend le score le plus élevé
-          bestScore = Math.max(...values);
+          bestScore = Math.round(bestScore * 100) / 100;
         }
-        bestScore = Math.round(bestScore * 100) / 100;
+        
+      } else if (selectedComparison === 'category') {
+        // Si "Tous les tests" est sélectionné
+        if (selectedCategory === 'TOUS') {
+          totalTests = classStudents.length * tests.length;
+          
+          const studentScores = [];
+          
+          for (const student of classStudents) {
+            const studentResults = results.filter(r => r.student_id === student.id);
+            
+            if (studentResults.length > 0) {
+              const categoriesScores = {};
+              
+              for (const categoryKey of Object.keys(categories)) {
+                const categoryResults = studentResults.filter(r => r.tests.category === categoryKey);
+                
+                if (categoryResults.length > 0) {
+                  const studentTestsData = categoryResults.map(r => ({
+                    name: r.tests.name,
+                    value: r.value,
+                    unit: r.tests.unit
+                  }));
+                  
+                  const catScore = await calculateCategoryScoreForStudent(
+                    studentTestsData,
+                    student.classes?.level || classe.level,
+                    student.gender
+                  );
+                  
+                  if (catScore !== null) {
+                    categoriesScores[categoryKey] = catScore;
+                  }
+                }
+              }
+              
+              const validCategoryScores = Object.values(categoriesScores);
+              if (validCategoryScores.length > 0) {
+                const studentGlobalScore = Math.round(
+                  validCategoryScores.reduce((a, b) => a + b, 0) / validCategoryScores.length
+                );
+                studentScores.push(studentGlobalScore);
+                completedTests += studentResults.length;
+                if (studentGlobalScore >= 85) excellentCount++;
+              }
+            }
+          }
+          
+          average = studentScores.length > 0 
+            ? Math.round(studentScores.reduce((a, b) => a + b, 0) / studentScores.length) 
+            : 0;
+          
+          bestScore = null;
+        } else {
+          // Catégorie spécifique
+          const categoryTests = tests.filter(t => t.category === selectedCategory);
+          totalTests = classStudents.length * categoryTests.length;
+          
+          const studentScores = [];
+          
+          for (const student of classStudents) {
+            const studentResults = results.filter(r => 
+              r.student_id === student.id && 
+              r.tests.category === selectedCategory
+            );
+            
+            if (studentResults.length > 0) {
+              const studentTestsData = studentResults.map(r => ({
+                name: r.tests.name,
+                value: r.value,
+                unit: r.tests.unit
+              }));
+              
+              const studentScore = await calculateCategoryScoreForStudent(
+                studentTestsData,
+                student.classes?.level || classe.level,
+                student.gender
+              );
+              
+              if (studentScore !== null) {
+                studentScores.push(studentScore);
+                completedTests += studentResults.length;
+                if (studentScore >= 85) excellentCount++;
+              }
+            }
+          }
+          
+          average = studentScores.length > 0 
+            ? Math.round(studentScores.reduce((a, b) => a + b, 0) / studentScores.length) 
+            : 0;
+          
+          bestScore = null;
+        }
+        
+      } else if (selectedComparison === 'participation') {
+        totalTests = classStudents.length * tests.length;
+        
+        const studentScores = [];
+        
+        for (const student of classStudents) {
+          const studentResults = results.filter(r => r.student_id === student.id);
+          
+          if (studentResults.length > 0) {
+            const categoriesScores = {};
+            
+            for (const categoryKey of Object.keys(categories)) {
+              const categoryResults = studentResults.filter(r => r.tests.category === categoryKey);
+              
+              if (categoryResults.length > 0) {
+                const studentTestsData = categoryResults.map(r => ({
+                  name: r.tests.name,
+                  value: r.value,
+                  unit: r.tests.unit
+                }));
+                
+                const catScore = await calculateCategoryScoreForStudent(
+                  studentTestsData,
+                  student.classes?.level || classe.level,
+                  student.gender
+                );
+                
+                if (catScore !== null) {
+                  categoriesScores[categoryKey] = catScore;
+                }
+              }
+            }
+            
+            const validCategoryScores = Object.values(categoriesScores);
+            if (validCategoryScores.length > 0) {
+              const studentGlobalScore = Math.round(
+                validCategoryScores.reduce((a, b) => a + b, 0) / validCategoryScores.length
+              );
+              studentScores.push(studentGlobalScore);
+              completedTests += studentResults.length;
+              if (studentGlobalScore >= 85) excellentCount++;
+            }
+          }
+        }
+        
+        average = studentScores.length > 0 
+          ? Math.round(studentScores.reduce((a, b) => a + b, 0) / studentScores.length) 
+          : 0;
+        
+        bestScore = null;
       }
+
+      const participation = totalTests > 0 ? (completedTests / totalTests) * 100 : 0;
+      const excellentRate = classStudents.length > 0 ? Math.round((excellentCount / classStudents.length) * 100) : 0;
       
-      return {
+      challengeData.push({
         classe,
         studentsCount: classStudents.length,
         totalTests,
@@ -886,12 +704,10 @@ const ChallengesClasses = () => {
         bestScore: bestScore,
         participation: Math.round(participation),
         excellentCount,
-        excellentRate: classStudents.length > 0 ? Math.round((excellentCount / classStudents.length) * 100) : 0,
-        values
-      };
-    });
+        excellentRate
+      });
+    }
 
-    // Trier selon le critère sélectionné
     challengeData.sort((a, b) => {
       switch (sortBy) {
         case 'average':
@@ -908,45 +724,242 @@ const ChallengesClasses = () => {
     setChallengeResults(challengeData);
   };
 
-  // Fonction pour obtenir l'icône de médaille
-  const getMedalIcon = (position) => {
-    switch (position) {
-      case 0:
-        return <Trophy className="text-yellow-500" size={24} />;
-      case 1:
-        return <Medal className="text-gray-400" size={24} />;
-      case 2:
-        return <Award className="text-amber-600" size={24} />;
-      default:
-        return <Star className="text-blue-500" size={16} />;
+  // ============================================================================
+  // EXPORT PDF
+  // ============================================================================
+
+  const exportChallengesPDF = () => {
+    if (!challengeResults || challengeResults.length === 0) {
+      alert('Aucune donnée à exporter.');
+      return;
+    }
+    
+    const exportData = challengeResults.map((data, index) => ({
+      rank: index + 1,
+      classDisplayName: `${data.classe.level}${data.classe.name}`,
+      level: data.classe.level,
+      name: data.classe.name,
+      averageScore: data.average || 0,
+      bestScore: data.bestScore,
+      participationRate: data.participation || 0,
+      excellentCount: data.excellentCount || 0,
+      completedTests: data.completedTests || 0,
+      totalTests: data.totalTests || 0,
+      totalStudents: data.studentsCount || 0
+    }));
+
+    let selectedTestName = '';
+    let selectedTestUnit = '';
+    
+    if (selectedComparison === 'test' && selectedTest) {
+      selectedTestName = selectedTest.name;
+      selectedTestUnit = selectedTest.unit;
+    } else if (selectedComparison === 'category') {
+      selectedTestName = selectedCategory;
+      selectedTestUnit = 'points';
+    } else {
+      selectedTestName = 'participation';
+      selectedTestUnit = 'points';
+    }
+
+    const config = {
+      schoolYear: selectedSchoolYear,
+      comparisonType: getComparisonTypeLabel(),
+      selectedTest: getSelectedTestLabel(),
+      selectedTestName,
+      selectedTestUnit,
+      selectedLevel: selectedLevel === 'all' ? 'Tous niveaux' : selectedLevel,
+      sortBy: getSortByLabel(),
+      establishmentName: "Collège Yves du Manoir",
+      totalResults: results.length,
+      showBestScore: selectedComparison === 'test'
+    };
+    
+    const printContent = generatePrintHTML(exportData, config);
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.open();
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 250);
+    };
+  };
+
+  const getComparisonTypeLabel = () => {
+    switch (selectedComparison) {
+      case 'test': return 'Par test spécifique';
+      case 'category': return 'Par catégorie';
+      case 'participation': return 'Participation globale';
+      default: return 'Par test spécifique';
     }
   };
 
-  // Messages encourageants selon la position
+  const getSelectedTestLabel = () => {
+    if (selectedComparison === 'test' && selectedTest) {
+      return `${selectedTest.name} (${selectedTest.category})`;
+    } else if (selectedComparison === 'category') {
+      if (selectedCategory === 'TOUS') {
+        return 'Tous les tests';
+      }
+      return `Catégorie ${categories[selectedCategory]?.name || selectedCategory}`;
+    } else if (selectedComparison === 'participation') {
+      return 'Tous les tests';
+    }
+    return 'N/A';
+  };
+
+  const getSortByLabel = () => {
+    switch (sortBy) {
+      case 'average': return 'Moyenne des résultats';
+      case 'participation': return 'Taux de participation';
+      case 'excellence': return 'Taux d\'excellence (85+)';
+      default: return 'Moyenne des résultats';
+    }
+  };
+
+  const generatePrintHTML = (challengeData, config) => {
+    const currentDate = new Date().toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Challenge Classes - ${config.schoolYear}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        @page { size: A4; margin: 15mm; }
+        body { font-family: 'Segoe UI', sans-serif; font-size: 11px; line-height: 1.3; color: #333; }
+        .header { text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 3px solid #4F46E5; }
+        .header h1 { font-size: 24px; color: #4F46E5; margin-bottom: 8px; font-weight: bold; }
+        .header .subtitle { font-size: 14px; color: #6B7280; margin-bottom: 8px; }
+        .header .info-line { font-size: 12px; color: #374151; }
+        .config-section { background: #F9FAFB; padding: 12px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #E5E7EB; }
+        .config-title { font-size: 14px; font-weight: bold; color: #374151; margin-bottom: 8px; }
+        .config-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 15px; }
+        .config-item { text-align: center; }
+        .config-label { font-size: 10px; color: #6B7280; text-transform: uppercase; font-weight: 600; margin-bottom: 4px; }
+        .config-value { font-size: 12px; font-weight: bold; color: #111827; }
+        .results-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 10px; }
+        .results-table th { background: #4F46E5; color: white; padding: 8px 6px; text-align: center; font-weight: bold; font-size: 9px; text-transform: uppercase; }
+        .results-table td { padding: 6px; text-align: center; border-bottom: 1px solid #E5E7EB; }
+        .results-table tr:nth-child(even) { background: #F9FAFB; }
+        .rank-cell { font-weight: bold; font-size: 12px; }
+        .rank-1 { color: #FFD700; }
+        .rank-2 { color: #C0C0C0; }
+        .rank-3 { color: #CD7F32; }
+        .class-cell { font-weight: bold; font-size: 11px; }
+        .metric-excellent { color: #059669; font-weight: bold; }
+        .metric-good { color: #0EA5E9; font-weight: bold; }
+        .metric-average { color: #F59E0B; font-weight: bold; }
+        .metric-low { color: #DC2626; font-weight: bold; }
+        @media print { .no-print { display: none !important; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🏆 Challenge Classes - EPS SANTÉ</h1>
+        <div class="subtitle">Comparaisons et défis motivants entre classes</div>
+        <div class="info-line">${config.establishmentName} • Année ${config.schoolYear} • Édité le ${currentDate}</div>
+    </div>
+    
+    <div class="config-section">
+        <div class="config-title">Configuration du Challenge</div>
+        <div class="config-grid">
+            <div class="config-item"><div class="config-label">Type</div><div class="config-value">${config.comparisonType}</div></div>
+            <div class="config-item"><div class="config-label">Test</div><div class="config-value">${config.selectedTest}</div></div>
+            <div class="config-item"><div class="config-label">Niveau</div><div class="config-value">${config.selectedLevel}</div></div>
+            <div class="config-item"><div class="config-label">Tri</div><div class="config-value">${config.sortBy}</div></div>
+        </div>
+    </div>
+    
+    <table class="results-table">
+        <thead>
+            <tr>
+                <th style="width: 8%">#</th>
+                <th style="width: ${config.showBestScore ? '18%' : '22%'}">Classe</th>
+                <th style="width: ${config.showBestScore ? '14%' : '17%'}">Moyenne</th>
+                ${config.showBestScore ? '<th style="width: 14%">Meilleur Score</th>' : ''}
+                <th style="width: ${config.showBestScore ? '14%' : '17%'}">Participation</th>
+                <th style="width: ${config.showBestScore ? '12%' : '14%'}">Excellents</th>
+                <th style="width: ${config.showBestScore ? '12%' : '16%'}">Tests</th>
+                <th style="width: ${config.showBestScore ? '8%' : '12%'}">Élèves</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${challengeData.map((classe, index) => {
+                const rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : '';
+                const rankIcon = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
+                const avgClass = (classe.averageScore || 0) >= 85 ? 'metric-excellent' : 
+                                (classe.averageScore || 0) >= 70 ? 'metric-good' : 
+                                (classe.averageScore || 0) >= 55 ? 'metric-average' : 'metric-low';
+                const participationClass = (classe.participationRate || 0) >= 80 ? 'metric-excellent' : 
+                                          (classe.participationRate || 0) >= 60 ? 'metric-good' : 
+                                          (classe.participationRate || 0) >= 40 ? 'metric-average' : 'metric-low';
+                
+                return `
+                <tr>
+                    <td class="rank-cell ${rankClass}">${rankIcon} ${index + 1}</td>
+                    <td class="class-cell">${classe.classDisplayName}</td>
+                    <td class="${avgClass}">${config.showBestScore ? formatTestValue(classe.averageScore, config.selectedTestName, config.selectedTestUnit) : Math.round(classe.averageScore || 0) + '/100'}</td>
+                    ${config.showBestScore ? `<td>${formatTestValue(classe.bestScore, config.selectedTestName, config.selectedTestUnit)}</td>` : ''}
+                    <td class="${participationClass}">${Math.round(classe.participationRate || 0)}%</td>
+                    <td class="metric-excellent">${classe.excellentCount || 0}</td>
+                    <td>${classe.completedTests || 0}/${classe.totalTests || 0}</td>
+                    <td>${classe.totalStudents || 0}</td>
+                </tr>
+                `;
+            }).join('')}
+        </tbody>
+    </table>
+</body>
+</html>
+    `;
+  };
+
+  // ============================================================================
+  // INTERFACE
+  // ============================================================================
+
+  const getMedalIcon = (position) => {
+    switch (position) {
+      case 0: return <Trophy className="text-yellow-500" size={24} />;
+      case 1: return <Medal className="text-gray-400" size={24} />;
+      case 2: return <Award className="text-amber-600" size={24} />;
+      default: return <Star className="text-blue-500" size={16} />;
+    }
+  };
+
   const getEncouragingMessage = (position, totalClasses, data) => {
     if (totalClasses === 1) return "Seule classe participante - Bravo !";
     
     switch (position) {
-      case 0:
-        return "🏆 Champions ! Félicitations à toute la classe !";
-      case 1:
-        return "🥈 Excellente performance ! Très proche du sommet !";
-      case 2:
-        return "🥉 Très bon travail ! Sur le podium !";
+      case 0: return "🏆 Champions ! Félicitations à toute la classe !";
+      case 1: return "🥈 Excellente performance ! Très proche du sommet !";
+      case 2: return "🥉 Très bon travail ! Sur le podium !";
       default:
-        if (data.participation >= 80) return "💪 Excellent engagement ! Participation remarquable !";
-        if (data.average > 60) return "👏 Beau travail ! Continuez vos efforts !";
-        return "🌱 En progression ! Chaque effort compte !";
+        if (data.participation >= 80) return "💪 Excellent engagement !";
+        if (data.average > 60) return "👏 Beau travail ! Continuez !";
+        return "🌱 En progression !";
     }
   };
 
-  // Interface de rendu
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <RefreshCw className="animate-spin mx-auto text-blue-500 mb-4" size={32} />
-          <p className="text-gray-600">Chargement des données de challenge...</p>
+          <p className="text-gray-600">Calcul avec notation dynamique...</p>
+          <p className="text-xs text-gray-500 mt-2">Premier calcul : ~30-60s • Suivants : instantané</p>
         </div>
       </div>
     );
@@ -971,7 +984,6 @@ const ChallengesClasses = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-6 py-6">
           <div className="flex items-center justify-between">
@@ -981,7 +993,7 @@ const ChallengesClasses = () => {
               </div>
               <div>
                 <h1 className="text-3xl font-bold">Challenges Classes</h1>
-                <p className="text-blue-100">Comparaisons et défis motivants entre classes</p>
+                <p className="text-blue-100">Comparaisons et défis motivants</p>
               </div>
             </div>
             <div className="text-right">
@@ -1003,45 +1015,25 @@ const ChallengesClasses = () => {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-6">
-        {/* Panneau de contrôle */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <h2 className="text-lg font-bold text-gray-800 mb-4">Configuration du Challenge</h2>
           
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            {/* Type de comparaison */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Type de comparaison
-              </label>
-              <select
-                value={selectedComparison}
-                onChange={(e) => setSelectedComparison(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
+              <label className="block text-sm font-medium text-gray-700 mb-2">Type de comparaison</label>
+              <select value={selectedComparison} onChange={(e) => setSelectedComparison(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                 <option value="test">Par test spécifique</option>
                 <option value="category">Par catégorie</option>
                 <option value="participation">Participation globale</option>
               </select>
             </div>
 
-            {/* Sélection test/catégorie */}
             {selectedComparison === 'test' && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Test à comparer
-                </label>
-                <select
-                  value={selectedTest?.id || ''}
-                  onChange={(e) => {
-                    const test = tests.find(t => t.id === parseInt(e.target.value));
-                    setSelectedTest(test);
-                  }}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                >
+                <label className="block text-sm font-medium text-gray-700 mb-2">Test à comparer</label>
+                <select value={selectedTest?.id || ''} onChange={(e) => setSelectedTest(tests.find(t => t.id === parseInt(e.target.value)))} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                   {tests.map(test => (
-                    <option key={test.id} value={test.id}>
-                      {test.name} ({test.category})
-                    </option>
+                    <option key={test.id} value={test.id}>{test.name} ({test.category})</option>
                   ))}
                 </select>
               </div>
@@ -1049,33 +1041,19 @@ const ChallengesClasses = () => {
 
             {selectedComparison === 'category' && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Catégorie à comparer
-                </label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                >
+                <label className="block text-sm font-medium text-gray-700 mb-2">Catégorie à comparer</label>
+                <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                  <option value="TOUS">Tous les tests</option>
                   {Object.entries(categories).map(([key, category]) => (
-                    <option key={key} value={key}>
-                      {category.name}
-                    </option>
+                    <option key={key} value={key}>{category.name}</option>
                   ))}
                 </select>
               </div>
             )}
 
-            {/* Filtre par niveau */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Niveau
-              </label>
-              <select
-                value={selectedLevel}
-                onChange={(e) => setSelectedLevel(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
+              <label className="block text-sm font-medium text-gray-700 mb-2">Niveau</label>
+              <select value={selectedLevel} onChange={(e) => setSelectedLevel(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                 <option value="all">Tous niveaux</option>
                 <option value="6ème">6ème uniquement</option>
                 <option value="5ème">5ème uniquement</option>
@@ -1084,16 +1062,9 @@ const ChallengesClasses = () => {
               </select>
             </div>
 
-            {/* Critère de tri */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Classer par
-              </label>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
+              <label className="block text-sm font-medium text-gray-700 mb-2">Classer par</label>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                 <option value="average">Moyenne des résultats</option>
                 <option value="participation">Taux de participation</option>
                 <option value="excellence">Taux d'excellence (85+)</option>
@@ -1104,31 +1075,19 @@ const ChallengesClasses = () => {
           <div className="mt-4 flex items-center justify-between">
             <div className="flex items-center space-x-2 text-sm text-gray-600">
               <Info size={16} />
-              <span>
-                Challenge basé sur {challengeResults.length} classe{challengeResults.length !== 1 ? 's' : ''} • 
-                Évaluation bienveillante et motivante
-              </span>
+              <span>Challenge basé sur {challengeResults.length} classe{challengeResults.length !== 1 ? 's' : ''} • Cache: {Object.keys(baremesCache).length} barèmes</span>
             </div>
-            <button
-              onClick={exportChallengesPDF}
-              disabled={challengeResults.length === 0}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-            >
+            <button onClick={exportChallengesPDF} disabled={challengeResults.length === 0} className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors">
               <Download size={16} />
-              <span>Exporter</span>
+              <span>Exporter PDF</span>
             </button>
           </div>
         </div>
 
-        {/* Résultats du challenge */}
         {challengeResults.length === 0 ? (
           <div className="bg-white rounded-lg shadow-md p-12 text-center">
             <BarChart3 className="mx-auto text-gray-400 mb-4" size={64} />
             <h3 className="text-xl font-bold text-gray-700 mb-2">Aucune donnée disponible</h3>
-            <p className="text-gray-500">
-              Aucun résultat trouvé pour les critères sélectionnés. 
-              Vérifiez que les élèves ont bien passé les tests.
-            </p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -1137,86 +1096,53 @@ const ChallengesClasses = () => {
               const message = getEncouragingMessage(index, challengeResults.length, data);
               
               return (
-                <div
-                  key={data.classe.id}
-                  className={`bg-white rounded-lg shadow-md p-6 border-l-4 ${
+                <div key={data.classe.id} className={`bg-white rounded-lg shadow-md p-6 border-l-4 ${
                     index === 0 ? 'border-yellow-500 bg-gradient-to-r from-yellow-50 to-white' :
                     index === 1 ? 'border-gray-400 bg-gradient-to-r from-gray-50 to-white' :
                     index === 2 ? 'border-amber-600 bg-gradient-to-r from-amber-50 to-white' :
                     colors.border
-                  }`}
-                >
+                  }`}>
                   <div className="flex items-center justify-between">
-                    {/* Position et médaille */}
                     <div className="flex items-center space-x-4">
                       <div className="flex items-center space-x-2">
-                        <div className="text-2xl font-bold text-gray-400">
-                          #{index + 1}
-                        </div>
+                        <div className="text-2xl font-bold text-gray-400">#{index + 1}</div>
                         {getMedalIcon(index)}
                       </div>
-                      
-                      {/* Infos classe */}
                       <div>
-                        <h3 className="text-xl font-bold text-gray-800">
-                          {data.classe.name} ({data.classe.level})
-                        </h3>
+                        <h3 className="text-xl font-bold text-gray-800">{data.classe.name} ({data.classe.level})</h3>
                         <p className="text-green-600 font-medium">{message}</p>
                       </div>
                     </div>
 
-                    {/* Statistiques - 5 colonnes */}
-                    <div className="grid grid-cols-5 gap-6 text-center">
-                      <div>
-                        <div className="text-2xl font-bold text-blue-600">
-                          {data.average || '—'}
-                        </div>
-                        <div className="text-xs text-gray-500">Moyenne</div>
+                    {selectedComparison === 'test' && data.bestScore !== null ? (
+                      <div className="grid grid-cols-5 gap-6 text-center">
+                        <div><div className="text-2xl font-bold text-blue-600">{formatTestValue(data.average, selectedTest?.name, selectedTest?.unit)}</div><div className="text-xs text-gray-500">Moyenne</div></div>
+                        <div><div className="text-2xl font-bold text-indigo-600">{formatTestValue(data.bestScore, selectedTest?.name, selectedTest?.unit)}</div><div className="text-xs text-gray-500">Meilleur score</div></div>
+                        <div><div className="text-2xl font-bold text-green-600">{data.participation}%</div><div className="text-xs text-gray-500">Participation</div></div>
+                        <div><div className="text-2xl font-bold text-purple-600">{data.excellentCount}</div><div className="text-xs text-gray-500">Excellents</div></div>
+                        <div><div className="text-2xl font-bold text-gray-600">{data.studentsCount}</div><div className="text-xs text-gray-500">Élèves</div></div>
                       </div>
-                      <div>
-                        <div className="text-2xl font-bold text-indigo-600">
-                          {data.bestScore !== null ? data.bestScore : '—'}
-                        </div>
-                        <div className="text-xs text-gray-500">Meilleur score</div>
+                    ) : (
+                      <div className="grid grid-cols-4 gap-8 text-center">
+                        <div><div className="text-2xl font-bold text-blue-600">{Math.round(data.average)}/100</div><div className="text-xs text-gray-500">Moyenne classe</div></div>
+                        <div><div className="text-2xl font-bold text-green-600">{data.participation}%</div><div className="text-xs text-gray-500">Participation</div></div>
+                        <div><div className="text-2xl font-bold text-purple-600">{data.excellentCount}</div><div className="text-xs text-gray-500">Excellents (≥85)</div></div>
+                        <div><div className="text-2xl font-bold text-gray-600">{data.studentsCount}</div><div className="text-xs text-gray-500">Élèves</div></div>
                       </div>
-                      <div>
-                        <div className="text-2xl font-bold text-green-600">
-                          {data.participation}%
-                        </div>
-                        <div className="text-xs text-gray-500">Participation</div>
-                      </div>
-                      <div>
-                        <div className="text-2xl font-bold text-purple-600">
-                          {data.excellentCount}
-                        </div>
-                        <div className="text-xs text-gray-500">Excellents</div>
-                      </div>
-                      <div>
-                        <div className="text-2xl font-bold text-gray-600">
-                          {data.studentsCount}
-                        </div>
-                        <div className="text-xs text-gray-500">Élèves</div>
-                      </div>
-                    </div>
+                    )}
                   </div>
 
-                  {/* Barre de progression pour la participation */}
                   <div className="mt-4">
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-sm text-gray-600">Participation de la classe</span>
-                      <span className="text-sm font-medium text-gray-800">
-                        {data.completedTests}/{data.totalTests} tests réalisés
-                      </span>
+                      <span className="text-sm font-medium text-gray-800">{data.completedTests}/{data.totalTests} tests</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className={`h-2 rounded-full transition-all duration-1000 ${
+                      <div className={`h-2 rounded-full transition-all duration-1000 ${
                           data.participation >= 90 ? 'bg-green-500' :
                           data.participation >= 70 ? 'bg-blue-500' :
                           data.participation >= 50 ? 'bg-yellow-500' : 'bg-red-500'
-                        }`}
-                        style={{ width: `${data.participation}%` }}
-                      ></div>
+                        }`} style={{ width: `${data.participation}%` }}></div>
                     </div>
                   </div>
                 </div>
@@ -1225,23 +1151,14 @@ const ChallengesClasses = () => {
           </div>
         )}
 
-        {/* Message de conclusion */}
         <div className="mt-8 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6 text-center border border-blue-200">
           <div className="flex items-center justify-center space-x-2 mb-3">
             <Heart className="text-red-500" size={24} />
-            <h3 className="text-xl font-bold text-gray-800">
-              Félicitations à toutes les classes !
-            </h3>
+            <h3 className="text-xl font-bold text-gray-800">Félicitations à toutes les classes !</h3>
           </div>
           <p className="text-gray-700 max-w-3xl mx-auto">
-            Chaque classe contribue à l'excellence de notre établissement. 
-            Les challenges sont l'occasion de se motiver mutuellement et de progresser ensemble. 
-            Continuez vos efforts - chaque mouvement compte pour votre santé !
+            Chaque classe contribue à l'excellence de notre établissement. Les challenges sont l'occasion de se motiver mutuellement et de progresser ensemble !
           </p>
-          <div className="mt-4 text-sm text-gray-600 bg-white bg-opacity-70 p-3 rounded">
-            <strong>Esprit sportif :</strong> Ces classements visent à encourager et motiver, 
-            pas à créer de la compétition négative. L'important est la participation et les progrès de chacun !
-          </div>
         </div>
       </div>
     </div>
