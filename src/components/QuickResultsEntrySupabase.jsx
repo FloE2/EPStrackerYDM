@@ -1,5 +1,5 @@
-// src/components/QuickResultsEntrySupabase.jsx - VERSION 100% REACT PURE - AUCUNE REF
-import React, { useState, useEffect, useCallback } from 'react';
+// src/components/QuickResultsEntrySupabase.jsx - VERSION CORRIGÉE AVEC SAISIE FLUIDE
+import React, { useState, useEffect } from 'react';
 import { 
   Users, 
   Activity, 
@@ -22,14 +22,11 @@ import {
   GraduationCap
 } from 'lucide-react';
 
-// UTILISE L'INSTANCE CENTRALISÉE - PAS DE CRÉATION D'INSTANCE
 import { supabase } from '../lib/supabase';
 
-// Hook pour gérer l'année scolaire (logique locale à ce composant)
 const useSchoolYear = () => {
   const [selectedYear, setSelectedYear] = useState('2025-2026');
   
-  // Générer les années scolaires disponibles
   const getAvailableYears = () => {
     const currentYear = new Date().getFullYear();
     const years = [];
@@ -48,10 +45,8 @@ const useSchoolYear = () => {
 };
 
 const QuickResultsEntrySupabase = ({ setActiveTab }) => {
-  // Hook pour l'année scolaire
   const { selectedYear, setSelectedYear, availableYears } = useSchoolYear();
   
-  // États principaux
   const [selectedClass, setSelectedClass] = useState(null);
   const [selectedTest, setSelectedTest] = useState(null);
   const [classes, setClasses] = useState([]);
@@ -62,71 +57,88 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
   
-  // États pour la recherche et le workflow
   const [searchTerm, setSearchTerm] = useState('');
   const [studentsCount, setStudentsCount] = useState({});
-  const [mode, setMode] = useState('class-selection'); // 'class-selection' | 'test-selection' | 'mass-entry'
+  const [mode, setMode] = useState('class-selection');
   
-  // États pour la saisie en lot - 100% REACT - AUCUNE REF
-  const [inputValues, setInputValues] = useState({}); // UNIQUE source de vérité
+  // États pour la saisie - SYSTÈME CORRIGÉ AVEC ÉDITION ISOLÉE
+  const [editingCell, setEditingCell] = useState(null); // {studentId: X}
+  const [editValue, setEditValue] = useState(''); // Valeur temporaire pendant l'édition
+  const [inputValues, setInputValues] = useState({}); // Valeurs sauvegardées
   const [savingProgress, setSavingProgress] = useState(0);
   
-  // États pour le mot de passe et changement d'année
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [pendingYear, setPendingYear] = useState(null);
 
-  // Navigation au clavier - VERSION ULTRA-SIMPLIFIÉE
+  // Navigation au clavier améliorée
   const handleKeyDown = (e, currentIndex, filteredStudents) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      
-      // Passer au suivant sans gestion d'état
-      const nextIndex = currentIndex + 1;
-      if (nextIndex < filteredStudents.length) {
-        // Simple setTimeout pour éviter les conflits
-        setTimeout(() => {
-          const nextInput = document.querySelector(`input[data-student-id="${filteredStudents[nextIndex].id}"]`);
-          if (nextInput) {
-            nextInput.focus();
-            nextInput.select();
-          }
-        }, 10);
-      }
+      saveCurrentEdit(currentIndex, filteredStudents);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      saveCurrentEdit(currentIndex, filteredStudents);
     }
   };
 
-  // Gestion du changement de valeur - 100% REACT
-  const handleInputChange = (studentId, value) => {
-    setInputValues(prev => ({
-      ...prev,
-      [studentId]: value
-    }));
+  // Sauvegarde de l'édition en cours et passage au suivant
+  const saveCurrentEdit = (currentIndex, filteredStudents) => {
+    if (editingCell && editValue.trim() !== '') {
+      // Sauvegarder la valeur
+      setInputValues(prev => ({
+        ...prev,
+        [editingCell.studentId]: editValue
+      }));
+    }
+    
+    // Fermer l'édition
+    setEditingCell(null);
+    setEditValue('');
+    
+    // Passer au suivant
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < filteredStudents.length) {
+      setTimeout(() => {
+        const nextStudent = filteredStudents[nextIndex];
+        startEdit(nextStudent.id);
+      }, 50);
+    }
   };
 
-  // Suppression de la gestion automatique du focus - laissons le navigateur gérer
+  // Annuler l'édition
+  const cancelEdit = () => {
+    setEditingCell(null);
+    setEditValue('');
+  };
 
-  // Chargement initial (rechargement quand l'année change)
+  // Démarrer l'édition d'une cellule
+  const startEdit = (studentId) => {
+    const currentValue = inputValues[studentId] || '';
+    setEditingCell({ studentId });
+    setEditValue(currentValue);
+  };
+
   useEffect(() => {
     loadClassesAndCounts();
   }, [selectedYear]);
 
-  // Chargement des élèves et tests quand une classe est sélectionnée
   useEffect(() => {
     if (selectedClass && mode === 'test-selection') {
       loadClassData(selectedClass.id);
     }
   }, [selectedClass, mode, selectedYear]);
 
-  // Chargement des résultats existants quand un test est sélectionné
   useEffect(() => {
     if (selectedClass && selectedTest && mode === 'mass-entry') {
       loadTestResults(selectedClass.id, selectedTest.id);
     }
   }, [selectedClass, selectedTest, mode, selectedYear]);
 
-  // Système de couleurs par niveau
   const getLevelColors = (level) => {
     const levelColorMap = {
       '6ème': {
@@ -161,7 +173,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     return levelColorMap[level] || levelColorMap['6ème'];
   };
 
-  // Système de couleurs par catégorie de test
   const getCategoryColors = (category) => {
     const categoryColorMap = {
       'ENDURANCE': {
@@ -204,7 +215,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     return categoryColorMap[category] || categoryColorMap['ENDURANCE'];
   };
 
-  // Fonction pour gérer le retour avec mot de passe
   const handleBackWithPassword = () => {
     setPendingYear(null);
     setShowPasswordModal(true);
@@ -212,7 +222,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     setPasswordError('');
   };
 
-  // Fonction pour gérer le changement d'année avec mot de passe
   const handleYearChangeWithPassword = (newYear) => {
     setPendingYear(newYear);
     setShowPasswordModal(true);
@@ -220,7 +229,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     setPasswordError('');
   };
 
-  // Fonction pour vérifier le mot de passe (pour les deux cas)
   const verifyPassword = () => {
     if (passwordInput === 'prof2025') {
       setShowPasswordModal(false);
@@ -228,16 +236,13 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
       setPasswordError('');
       
       if (pendingYear === 'dashboard') {
-        // Navigation vers le dashboard
         setActiveTab && setActiveTab('dashboard');
         setPendingYear(null);
       } else if (pendingYear) {
-        // Changement d'année approuvé
         setSelectedYear(pendingYear);
         setPendingYear(null);
         resetToClassSelection();
       } else {
-        // Retour au menu principal
         resetToClassSelection();
       }
     } else {
@@ -245,27 +250,23 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     }
   };
 
-  // Reset complet à la sélection des classes
   const resetToClassSelection = () => {
     setSelectedClass(null);
     setSelectedTest(null);
     setMode('class-selection');
     setSearchTerm('');
     setInputValues({});
+    setEditingCell(null);
+    setEditValue('');
     setResults({});
     setStudents([]);
-    setFocusedInput(null);
   };
 
-  // Chargement des classes et comptage des élèves (filtré par année)
   const loadClassesAndCounts = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      console.log('🔄 QuickResultsEntry: Chargement pour année', selectedYear);
-      
-      // Charger les classes filtrées par année scolaire
       const [classesRes, testsRes] = await Promise.all([
         supabase
           .from('classes')
@@ -281,7 +282,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
       setClasses(classesRes.data);
       setTests(testsRes.data);
       
-      // Compter les élèves par classe (filtrés par année)
       const counts = {};
       for (const classe of classesRes.data) {
         const { count, error } = await supabase
@@ -298,18 +298,16 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
       
     } catch (err) {
       setError(err.message);
-      console.error('❌ Erreur lors du chargement:', err);
+      console.error('Erreur lors du chargement:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  // Chargement des données d'une classe spécifique (filtré par année)
   const loadClassData = async (classId) => {
     try {
       setLoading(true);
       
-      // Charger seulement les élèves de la classe pour l'année sélectionnée
       const studentsRes = await supabase
         .from('students')
         .select('*')
@@ -319,30 +317,25 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
       
       if (studentsRes.error) throw studentsRes.error;
       
-      console.log('✅ Élèves chargés pour', selectedYear, ':', studentsRes.data.length);
       setStudents(studentsRes.data);
       
       if (studentsRes.data.length === 0) {
-        setError(`Aucun élève trouvé dans cette classe pour l'année ${selectedYear}. Vérifiez que des élèves sont bien assignés à cette classe pour cette année scolaire.`);
+        setError(`Aucun élève trouvé dans cette classe pour l'année ${selectedYear}.`);
         return;
       }
       
     } catch (err) {
-      console.error('❌ Erreur lors du chargement de la classe:', err);
+      console.error('Erreur lors du chargement de la classe:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Chargement des résultats existants - VERSION 100% REACT
   const loadTestResults = async (classId, testId) => {
     try {
       setLoading(true);
       
-      console.log('🔄 Chargement des résultats pour test', testId, 'classe', classId, 'année', selectedYear);
-      
-      // Charger les résultats pour ce test, cette classe et cette année
       const resultsRes = await supabase
         .from('results')
         .select(`
@@ -355,9 +348,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
       
       if (resultsRes.error) throw resultsRes.error;
       
-      console.log('✅ Résultats chargés:', resultsRes.data.length);
-      
-      // Transformer en map avec student_id comme clé - PLUS DE REFS !
       const resultsMap = {};
       const initialInputValues = {};
       
@@ -369,29 +359,22 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
         }
       });
       
-      // Mettre à jour UNIQUEMENT les états React
       setResults(resultsMap);
       setInputValues(initialInputValues);
       
-      console.log('✅ États React mis à jour, aucune manipulation de refs');
-      
     } catch (err) {
-      console.error('❌ Erreur lors du chargement des résultats:', err);
+      console.error('Erreur lors du chargement des résultats:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // SAUVEGARDE 100% REACT - AUCUNE REF
   const saveAllResults = async () => {
     try {
       setSaving(true);
       setSavingProgress(0);
       
-      console.log('💾 Début de la sauvegarde - 100% REACT...');
-      
-      // Préparer les données UNIQUEMENT à partir de l'état React
       const resultsToSave = [];
       
       Object.keys(inputValues).forEach(studentId => {
@@ -411,19 +394,15 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
         }
       });
 
-      console.log('📊 Données à sauvegarder:', resultsToSave.length, 'résultats');
-
       if (resultsToSave.length === 0) {
-        alert('❌ Aucun résultat valide à sauvegarder');
+        alert('Aucun résultat valide à sauvegarder');
         return;
       }
 
-      // Sauvegarder un par un avec feedback de progression
       for (let i = 0; i < resultsToSave.length; i++) {
         const result = resultsToSave[i];
         
         try {
-          // Vérifier s'il existe déjà pour cette année
           const { data: existing, error: selectError } = await supabase
             .from('results')
             .select('id')
@@ -432,15 +411,13 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
             .eq('school_year', result.school_year)
             .maybeSingle();
 
-          if (selectError && selectError.code !== 'PGRST116') { // PGRST116 = no rows found
-            console.error('❌ Erreur vérification pour élève', result.student_id, ':', selectError);
+          if (selectError && selectError.code !== 'PGRST116') {
+            console.error('Erreur vérification:', selectError);
             continue;
           }
 
-          let success = false;
           if (existing) {
-            // Mettre à jour
-            const { error: updateError } = await supabase
+            await supabase
               .from('results')
               .update({
                 value: result.value,
@@ -450,46 +427,25 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
               .eq('student_id', result.student_id)
               .eq('test_id', result.test_id)
               .eq('school_year', result.school_year);
-              
-            if (updateError) {
-              console.error('❌ Erreur mise à jour élève', result.student_id, ':', updateError);
-            } else {
-              success = true;
-              console.log('✅ Mise à jour élève', result.student_id, 'valeur:', result.value);
-            }
           } else {
-            // Créer nouveau
-            const { error: insertError } = await supabase
+            await supabase
               .from('results')
               .insert([result]);
-              
-            if (insertError) {
-              console.error('❌ Erreur insertion élève', result.student_id, ':', insertError);
-            } else {
-              success = true;
-              console.log('✅ Insertion élève', result.student_id, 'valeur:', result.value);
-            }
           }
           
-          if (success) {
-            setSavingProgress(Math.round(((i + 1) / resultsToSave.length) * 100));
-          }
+          setSavingProgress(Math.round(((i + 1) / resultsToSave.length) * 100));
           
         } catch (individualError) {
-          console.error(`❌ Erreur pour l'élève ${result.student_id}:`, individualError);
+          console.error(`Erreur pour l'élève ${result.student_id}:`, individualError);
         }
       }
 
-      console.log('✅ Sauvegarde terminée, rechargement des données...');
-      
-      // Recharger les données après sauvegarde
       await loadTestResults(selectedClass.id, selectedTest.id);
-      
-      alert(`✅ Sauvegarde terminée pour l'année ${selectedYear}!`);
+      alert(`Sauvegarde terminée pour l'année ${selectedYear}!`);
       
     } catch (error) {
-      console.error('❌ Erreur générale lors de la sauvegarde:', error);
-      alert('❌ Erreur lors de la sauvegarde des résultats: ' + error.message);
+      console.error('Erreur lors de la sauvegarde:', error);
+      alert('Erreur lors de la sauvegarde des résultats: ' + error.message);
     } finally {
       setSaving(false);
       setSavingProgress(0);
@@ -506,7 +462,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     }
   };
 
-  // Fonction pour compter les résultats complétés
   const getCompletedCount = () => {
     return Object.keys(inputValues).filter(studentId => {
       const value = inputValues[studentId];
@@ -514,7 +469,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     }).length;
   };
 
-  // Composant pour le sélecteur d'année (avec protection mot de passe)
   const SchoolYearSelector = () => (
     <div className="flex items-center space-x-3 bg-white rounded-lg shadow-sm px-4 py-2 border">
       <Calendar className="text-gray-600" size={20} />
@@ -536,7 +490,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     </div>
   );
 
-  // Modal mot de passe
   const PasswordModal = () => {
     if (!showPasswordModal) return null;
 
@@ -551,10 +504,10 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
             </h2>
             <p className="text-gray-600">
               {pendingYear === 'dashboard' 
-                ? 'Veuillez saisir le mot de passe professeur pour accéder au tableau de bord'
+                ? 'Veuillez saisir le mot de passe professeur'
                 : pendingYear 
                 ? `Confirmer le changement vers l'année ${pendingYear}`
-                : 'Veuillez saisir le mot de passe professeur pour revenir au menu principal'
+                : 'Veuillez saisir le mot de passe professeur'
               }
             </p>
           </div>
@@ -607,7 +560,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     );
   };
 
-  // Vue 1: Sélection des classes
   const ClassSelectionView = () => {
     const classesByLevel = {
       '6ème': classes.filter(c => c.level === '6ème').sort((a, b) => a.name.localeCompare(b.name)),
@@ -628,15 +580,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
             </h3>
             <p className="text-gray-500 mb-6">
               Il n'y a pas encore de classes créées pour cette année scolaire.
-              <br />
-              Vérifiez que les classes ont bien été créées avec l'année scolaire correcte.
             </p>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-md mx-auto">
-              <p className="text-sm text-blue-700">
-                <strong>Conseil :</strong> Utilisez le sélecteur d'année ci-dessus pour changer d'année scolaire 
-                ou contactez l'administrateur pour créer les classes de cette année.
-              </p>
-            </div>
           </div>
         ) : (
           <div>
@@ -645,7 +589,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                 Sélectionnez une classe pour commencer
               </h2>
               <p className="text-gray-600">
-                Choisissez la classe pour laquelle vous souhaitez saisir des résultats de tests physiques
+                Choisissez la classe pour laquelle vous souhaitez saisir des résultats
               </p>
             </div>
             
@@ -683,11 +627,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                                 <Users size={16} />
                                 <span>{studentCount} élève{studentCount !== 1 ? 's' : ''}</span>
                               </div>
-                              <div className="mt-3">
-                                <div className={`text-sm ${colors.text} opacity-60`}>
-                                  Cliquer pour sélectionner le test
-                                </div>
-                              </div>
                             </div>
                           </button>
                         );
@@ -703,13 +642,11 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     );
   };
 
-  // Vue 2: Sélection du test pour la classe
   const TestSelectionView = () => {
     const colors = getLevelColors(selectedClass.level);
 
     return (
       <div className="min-h-screen bg-gray-50">
-        {/* Header */}
         <div className={`${colors.accent} text-white shadow-lg`}>
           <div className="max-w-6xl mx-auto px-6 py-4">
             <div className="flex items-center justify-between">
@@ -726,7 +663,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                   <div>
                     <h1 className="text-2xl font-bold">{selectedClass.level.charAt(0)}{selectedClass.name} - Choix du Test</h1>
                     <p className="text-sm opacity-90">
-                      Sélectionnez le test physique à effectuer • {selectedClass.level} • {selectedYear}
+                      {selectedClass.level} • {selectedYear}
                     </p>
                   </div>
                 </div>
@@ -742,15 +679,11 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
           </div>
         </div>
 
-        {/* Contenu */}
         <div className="max-w-6xl mx-auto px-6 py-6">
           <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
             <h2 className="text-2xl font-bold text-gray-800 mb-4 text-center">
-              Choisissez le test physique pour l'atelier
+              Choisissez le test physique
             </h2>
-            <p className="text-center text-gray-600 mb-6">
-              Vous pourrez ensuite saisir les résultats pour tous les élèves en même temps
-            </p>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -767,10 +700,10 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                   className={`p-6 ${categoryColors.bg} rounded-lg border-2 ${categoryColors.border} ${categoryColors.hover} hover:shadow-lg transition-all duration-300 text-left group`}
                 >
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className={`text-xl font-bold ${categoryColors.text} group-hover:text-opacity-80`}>
+                    <h3 className={`text-xl font-bold ${categoryColors.text}`}>
                       {test.name}
                     </h3>
-                    <Activity className={`${categoryColors.text} group-hover:text-opacity-60`} size={24} />
+                    <Activity className={`${categoryColors.text}`} size={24} />
                   </div>
                   
                   <div className="space-y-3">
@@ -780,13 +713,10 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     
                     <div className="text-gray-600">
                       <p className="font-medium">Unité: {test.unit}</p>
-                      {test.description && (
-                        <p className="text-sm mt-2 opacity-80">{test.description}</p>
-                      )}
                     </div>
                     
                     <div className="pt-3 border-t border-gray-100">
-                      <div className={`flex items-center justify-center text-sm ${categoryColors.text} group-hover:text-opacity-70 font-medium`}>
+                      <div className={`flex items-center justify-center text-sm ${categoryColors.text} font-medium`}>
                         <Play size={16} className="mr-2" />
                         Démarrer l'atelier
                       </div>
@@ -801,7 +731,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     );
   };
 
-  // Vue 3: Saisie en masse - 100% REACT - AUCUNE REF
   const MassEntryView = () => {
     const colors = getLevelColors(selectedClass.level);
     
@@ -810,15 +739,15 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     );
 
     const clearAllResults = () => {
-      // Vider SEULEMENT l'état React - aucune manipulation DOM
       setInputValues({});
+      setEditingCell(null);
+      setEditValue('');
     };
 
     const completedCount = getCompletedCount();
 
     return (
       <div className="min-h-screen bg-gray-50">
-        {/* Header */}
         <div className={`${colors.accent} text-white shadow-lg`}>
           <div className="max-w-7xl mx-auto px-6 py-4">
             <div className="flex items-center justify-between">
@@ -828,7 +757,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     setMode('test-selection');
                     setSelectedTest(null);
                     setInputValues({});
-                    setFocusedInput(null);
+                    setEditingCell(null);
                   }}
                   className="flex items-center space-x-2 px-3 py-2 bg-white bg-opacity-20 text-white rounded-lg hover:bg-opacity-30 transition-colors"
                 >
@@ -842,7 +771,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                       {selectedTest.name} - {selectedClass.level.charAt(0)}{selectedClass.name}
                     </h1>
                     <p className="text-sm opacity-90">
-                      Atelier {selectedTest.category} • Unité: {selectedTest.unit} • {selectedClass.level} • {selectedYear}
+                      {selectedTest.category} • {selectedTest.unit} • {selectedYear}
                     </p>
                   </div>
                 </div>
@@ -865,7 +794,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
           </div>
         </div>
 
-        {/* Barre d'actions */}
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
             <div className="flex items-center justify-between">
@@ -913,50 +841,53 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
             </div>
           </div>
 
-          {/* Instructions */}
           <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
             <div className="flex items-center justify-center space-x-6 text-sm text-green-700">
               <div className="flex items-center space-x-2">
                 <CheckCircle size={16} />
-                <span><strong>100% REACT PUR</strong> - Aucune ref, aucun conflit</span>
+                <span><strong>Saisie corrigée</strong> - Édition isolée pour fluidité</span>
               </div>
               <div className="flex items-center space-x-2">
                 <kbd className="px-2 py-1 bg-green-200 rounded text-xs">Entrée</kbd>
-                <span>Élève suivant</span>
+                <span>Suivant</span>
               </div>
-              <div className="text-xs">Saisie fluide garantie</div>
+              <div className="flex items-center space-x-2">
+                <kbd className="px-2 py-1 bg-green-200 rounded text-xs">Esc</kbd>
+                <span>Annuler</span>
+              </div>
             </div>
           </div>
 
-          {/* GRILLE 100% REACT - AUCUNE REF */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredStudents.map((student, index) => {
-              const inputValue = inputValues[student.id] || '';
-              const hasValue = inputValue && inputValue.toString().trim() !== '';
+              const isEditing = editingCell?.studentId === student.id;
+              const savedValue = inputValues[student.id] || '';
+              const displayValue = isEditing ? editValue : savedValue;
+              const hasValue = savedValue && savedValue.toString().trim() !== '';
               const hasExisting = results[student.id];
               
               return (
                 <div
                   key={student.id}
                   className={`bg-white rounded-lg border-2 p-4 transition-all duration-200 ${
-                    hasValue 
+                    isEditing
+                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-300'
+                      : hasValue 
                       ? 'border-green-300 bg-green-50' 
                       : hasExisting 
                       ? 'border-blue-300 bg-blue-50'
                       : 'border-gray-200'
                   }`}
                 >
-                  {/* Header avec numéro et statut */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-sm font-bold text-gray-600">
                       {index + 1}
                     </div>
-                    {hasValue && (
+                    {hasValue && !isEditing && (
                       <CheckCircle className="text-green-500" size={20} />
                     )}
                   </div>
 
-                  {/* Avatar et nom */}
                   <div className="text-center mb-4">
                     <div className="w-16 h-16 mx-auto bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-lg mb-2">
                       {student.first_name.charAt(0)}{student.last_name.charAt(0)}
@@ -969,8 +900,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     </div>
                   </div>
 
-                  {/* Résultat existant */}
-                  {hasExisting && !hasValue && (
+                  {hasExisting && !hasValue && !isEditing && (
                     <div className="text-center mb-3">
                       <div className="text-xs text-gray-500 mb-1">Résultat actuel</div>
                       <div className="text-sm font-medium text-blue-600">
@@ -979,37 +909,40 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     </div>
                   )}
 
-                  {/* INPUT 100% REACT - ULTRA-SIMPLIFIÉ */}
                   <div className="space-y-2">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={inputValue}
-                      onChange={(e) => handleInputChange(student.id, e.target.value)}
-                      onKeyDown={(e) => handleKeyDown(e, index, filteredStudents)}
-                      data-student-id={student.id}
-                      placeholder={
-                        selectedTest.unit === 'sec' && 
-                        (selectedTest.name.includes('Planche') || selectedTest.name.includes('Chaise') || selectedTest.name.includes('Suspension'))
-                          ? 'Ex: 90 (pour 1min30)'
-                          : `Résultat en ${selectedTest.unit}`
-                      }
-                      className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center text-sm"
-                      style={{
-                        WebkitAppearance: 'none',
-                        MozAppearance: 'textfield'
-                      }}
-                    />
+                    {isEditing ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => handleKeyDown(e, index, filteredStudents)}
+                        onBlur={() => {
+                          if (editValue.trim() !== '') {
+                            setInputValues(prev => ({
+                              ...prev,
+                              [student.id]: editValue
+                            }));
+                          }
+                          setEditingCell(null);
+                          setEditValue('');
+                        }}
+                        placeholder={`Résultat en ${selectedTest.unit}`}
+                        className="w-full p-2 border-2 border-blue-500 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center text-sm"
+                        autoFocus
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={displayValue}
+                        onFocus={() => startEdit(student.id)}
+                        placeholder={`Résultat en ${selectedTest.unit}`}
+                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center text-sm cursor-pointer"
+                        readOnly
+                      />
+                    )}
                     <div className="text-center text-xs text-gray-500">
-                      {selectedTest.unit === 'sec' && 
-                       (selectedTest.name.includes('Planche') || selectedTest.name.includes('Chaise') || selectedTest.name.includes('Suspension')) ? (
-                        <div>
-                          <div className="font-medium">secondes</div>
-                          <div className="text-xs">1min30 = 90sec</div>
-                        </div>
-                      ) : (
-                        selectedTest.unit
-                      )}
+                      {selectedTest.unit}
                     </div>
                   </div>
                 </div>
@@ -1017,7 +950,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
             })}
           </div>
 
-          {/* Résumé en bas */}
           {filteredStudents.length > 0 && (
             <div className="mt-8 bg-white rounded-lg shadow-sm p-6">
               <div className="flex items-center justify-between">
@@ -1036,41 +968,32 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     </div>
                     <div className="text-sm text-gray-500">Progression</div>
                   </div>
-                  <div className="text-center border-l border-gray-200 pl-6">
-                    <div className="text-lg font-bold text-blue-600">{selectedYear}</div>
-                    <div className="text-xs text-gray-500">Année scolaire</div>
-                  </div>
                 </div>
                 
-                <div className="text-right">
-                  <p className="text-sm text-gray-600 mb-2">
-                    <strong>✅ 100% REACT PUR :</strong> Aucun conflit, saisie fluide
-                  </p>
-                  <div className="flex space-x-3">
-                    <button
-                      onClick={clearAllResults}
-                      className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-                    >
-                      Effacer tout
-                    </button>
-                    <button
-                      onClick={saveAllResults}
-                      disabled={saving || completedCount === 0}
-                      className="flex items-center space-x-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
-                    >
-                      {saving ? (
-                        <>
-                          <Loader className="animate-spin" size={18} />
-                          <span>Sauvegarde...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Save size={18} />
-                          <span>Sauvegarder ({completedCount})</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={clearAllResults}
+                    className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
+                  >
+                    Effacer tout
+                  </button>
+                  <button
+                    onClick={saveAllResults}
+                    disabled={saving || completedCount === 0}
+                    className="flex items-center space-x-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
+                  >
+                    {saving ? (
+                      <>
+                        <Loader className="animate-spin" size={18} />
+                        <span>Sauvegarde...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save size={18} />
+                        <span>Sauvegarder ({completedCount})</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
@@ -1080,7 +1003,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     );
   };
 
-  // Gestion des erreurs et chargement
   if (error) {
     return (
       <div className="container mx-auto px-4 py-6">
@@ -1088,15 +1010,12 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
           <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
           <h2 className="text-lg font-semibold text-red-700 mb-2">Erreur de chargement</h2>
           <p className="text-red-600 mb-4">{error}</p>
-          <div className="flex justify-center space-x-3">
-            <button
-              onClick={refreshData}
-              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-            >
-              Réessayer
-            </button>
-            <SchoolYearSelector />
-          </div>
+          <button
+            onClick={refreshData}
+            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Réessayer
+          </button>
         </div>
       </div>
     );
@@ -1107,20 +1026,14 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
       <div className="container mx-auto px-4 py-6">
         <div className="flex items-center justify-center py-12">
           <Loader className="animate-spin text-blue-500 mr-3" size={24} />
-          <span className="text-gray-600">
-            {mode === 'class-selection' ? `Chargement des classes pour ${selectedYear}...` :
-             mode === 'test-selection' ? `Chargement des élèves pour ${selectedYear}...` :
-             `Chargement des résultats pour ${selectedYear}...`}
-          </span>
+          <span className="text-gray-600">Chargement...</span>
         </div>
       </div>
     );
   }
 
-  // Rendu principal selon le mode
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header principal fixe */}
       <div className="bg-white shadow-sm border-b sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -1129,8 +1042,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                 onClick={() => {
                   setPendingYear('dashboard');
                   setShowPasswordModal(true);
-                  setPasswordInput('');
-                  setPasswordError('');
                 }}
                 className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
               >
@@ -1140,17 +1051,14 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
               <div className="flex items-center space-x-3">
                 <CheckCircle size={28} className="text-green-600" />
                 <div>
-                  <h1 className="text-xl font-bold text-gray-800">Mode Atelier - Saisie Rapide (100% REACT)</h1>
+                  <h1 className="text-xl font-bold text-gray-800">Mode Atelier - Saisie Rapide (Corrigée)</h1>
                   <p className="text-sm text-gray-600">
-                    ✅ Aucune ref, aucun conflit - Saisie ultra-fluide • Année {selectedYear}
+                    Saisie fluide optimisée • Année {selectedYear}
                   </p>
                 </div>
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="text-sm text-gray-600">
-                <span className="font-medium">{classes.length}</span> classes disponibles
-              </div>
               <SchoolYearSelector />
               <button 
                 onClick={refreshData}
@@ -1164,7 +1072,6 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
         </div>
       </div>
 
-      {/* Contenu principal */}
       <div className="pt-6">
         {mode === 'mass-entry' && selectedClass && selectedTest ? (
           <MassEntryView />
