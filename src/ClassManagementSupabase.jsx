@@ -1,5 +1,5 @@
-// src/components/ClassManagementSupabase.jsx - VERSION AVEC DASHBOARD ÉLÈVE ET MODIFICATION
-import React, { useState, useEffect, useRef } from 'react';
+// src/components/ClassManagementSupabase.jsx - VERSION AVEC FICHES IMPRIMABLES
+import React, { useState, useEffect } from 'react';
 import { 
   Users, 
   BookOpen, 
@@ -18,23 +18,166 @@ import {
   Edit3,
   Target,
   XCircle,
-  AlertTriangle
+  AlertTriangle,
+  FileText,
+  Printer
 } from 'lucide-react';
 
-// Import de l'instance Supabase centralisée
 import { supabase } from './lib/supabase.js';
-
-// Import du contexte année scolaire
 import { useSchoolYear } from './contexts/SchoolYearContext';
-
-// Import du composant modal d'import Excel
 import { ExcelImportModal } from './ExcelImportModal';
 
+// Composant pour générer les fiches imprimables
+const StudentSheetGenerator = ({ student, selectedClass, tests, results, onClose }) => {
+  const schoolYear = student.school_year || selectedClass.school_year || '2025-2026';
+  
+  if (!student || !selectedClass || !tests || !Array.isArray(tests)) {
+    return (
+      <div style={{ padding: '20px', textAlign: 'center' }}>
+        <p>Erreur : Données manquantes pour générer la fiche</p>
+        <button onClick={onClose} style={{ marginTop: '10px', padding: '8px 16px', background: '#6B7280', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+          Fermer
+        </button>
+      </div>
+    );
+  }
+
+  const getResultStatus = (studentId, testId) => {
+    const key = `${studentId}-${testId}`;
+    return results ? results[key] || { status: 'empty' } : { status: 'empty' };
+  };
+
+  const testsByCategory = tests.reduce((acc, test) => {
+    const category = test.category || 'AUTRE';
+    if (!acc[category]) acc[category] = [];
+    acc[category].push(test);
+    return acc;
+  }, {});
+
+  const getCategoryColors = (category) => {
+    const colors = {
+      'ENDURANCE': { bg: '#EFF6FF', border: '#BFDBFE', text: '#1E40AF' },
+      'FORCE': { bg: '#FEE2E2', border: '#FECACA', text: '#991B1B' },
+      'SOUPLESSE': { bg: '#ECFDF5', border: '#A7F3D0', text: '#065F46' },
+      'EQUILIBRE': { bg: '#F3E8FF', border: '#D8B4FE', text: '#6B21A8' },
+      'VITESSE': { bg: '#FEF3C7', border: '#FDE68A', text: '#92400E' },
+      'COORDINATION': { bg: '#E0E7FF', border: '#C7D2FE', text: '#3730A3' }
+    };
+    return colors[category] || { bg: '#F3F4F6', border: '#D1D5DB', text: '#374151' };
+  };
+
+  return (
+    <>
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #printable-sheet, #printable-sheet * { visibility: visible; }
+          #printable-sheet { position: absolute; left: 0; top: 0; width: 100%; }
+          @page { size: A4 landscape; margin: 10mm; }
+          .no-print { display: none !important; }
+        }
+        @media screen {
+          #printable-sheet {
+            width: 297mm;
+            min-height: 210mm;
+            background: white;
+            margin: 0 auto;
+            padding: 15mm;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+          }
+        }
+        .print-container { font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.4; }
+        .header-section { border-bottom: 3px solid #1E40AF; padding-bottom: 8px; margin-bottom: 12px; }
+        .student-info { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 8px; }
+        .info-box { background: #F3F4F6; padding: 6px 10px; border-radius: 4px; border: 1px solid #D1D5DB; }
+        .categories-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
+        .category-section { border: 2px solid; border-radius: 6px; padding: 8px; break-inside: avoid; }
+        .category-header { font-size: 12pt; font-weight: bold; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid; }
+        .test-row { display: grid; grid-template-columns: 2fr 1fr 30px; gap: 8px; align-items: center; margin-bottom: 8px; padding: 6px; background: white; border-radius: 3px; border: 1px solid #E5E7EB; }
+        .test-name { font-weight: 500; font-size: 10pt; }
+        .result-box { border: 2px solid #9CA3AF; border-radius: 3px; padding: 6px; min-height: 28px; background: white; text-align: center; font-weight: bold; }
+        .result-filled { background: #DBEAFE; border-color: #3B82F6; color: #1E40AF; }
+        .checkbox-validation { width: 20px; height: 20px; border: 2px solid #6B7280; border-radius: 3px; margin: 0 auto; }
+        .validation-section { border: 2px dashed #9CA3AF; border-radius: 6px; padding: 10px; background: #F9FAFB; display: flex; justify-content: space-between; align-items: center; }
+        .signature-box { border-bottom: 2px solid #374151; width: 200px; height: 30px; }
+        .unit-label { font-size: 9pt; color: #6B7280; font-style: italic; }
+      `}</style>
+
+      <div className="no-print" style={{ position: 'fixed', top: 20, right: 20, zIndex: 1000, display: 'flex', gap: '10px' }}>
+        <button onClick={() => window.print()} style={{ background: '#3B82F6', color: 'white', padding: '12px 24px', borderRadius: '8px', border: 'none', fontSize: '14pt', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          🖨️ Imprimer la fiche
+        </button>
+        <button onClick={onClose} style={{ background: '#6B7280', color: 'white', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12pt' }}>
+          ✕ Fermer
+        </button>
+      </div>
+
+      <div id="printable-sheet">
+        <div className="print-container">
+          <div className="header-section">
+            <h1 style={{ margin: 0, fontSize: '18pt', color: '#1E40AF' }}>FICHE INDIVIDUELLE - TESTS PHYSIQUES</h1>
+          </div>
+
+          <div className="student-info">
+            <div className="info-box"><strong>Élève :</strong> {student.first_name} {student.last_name}</div>
+            <div className="info-box"><strong>Classe :</strong> {selectedClass.level.charAt(0)}{selectedClass.name}</div>
+            <div className="info-box"><strong>Année :</strong> {schoolYear}</div>
+          </div>
+
+          <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', padding: '8px 12px', borderRadius: '4px', marginBottom: '12px', fontSize: '10pt' }}>
+            <strong>📝 Instructions :</strong> Complète cette fiche au fur et à mesure que tu réalises les tests. Les résultats déjà enregistrés sont indiqués. Demande la validation du professeur une fois tous les tests terminés.
+          </div>
+
+          <div className="categories-grid">
+            {Object.entries(testsByCategory).map(([category, categoryTests]) => {
+              const colors = getCategoryColors(category);
+              return (
+                <div key={category} className="category-section" style={{ backgroundColor: colors.bg, borderColor: colors.border }}>
+                  <div className="category-header" style={{ color: colors.text, borderColor: colors.border }}>{category}</div>
+                  {categoryTests.map(test => {
+                    const result = getResultStatus(student.id, test.id);
+                    const hasResult = result.status === 'result';
+                    return (
+                      <div key={test.id} className="test-row">
+                        <div className="test-name">{test.name}<div className="unit-label">({test.unit})</div></div>
+                        <div className={`result-box ${hasResult ? 'result-filled' : ''}`}>
+                          {hasResult ? `${result.value} ${test.unit}` : ''}
+                        </div>
+                        <div className="checkbox-validation"></div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="validation-section">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+              <div style={{ width: '30px', height: '30px', border: '3px solid #059669', borderRadius: '4px' }}></div>
+              <div>
+                <strong style={{ fontSize: '11pt' }}>✓ VALIDATION PROFESSEUR</strong>
+                <div style={{ fontSize: '9pt', color: '#6B7280' }}>Cocher quand tous les tests sont terminés et validés</div>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '10pt', marginBottom: '5px' }}>Signature :</div>
+              <div className="signature-box"></div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: '12px', fontSize: '9pt', color: '#6B7280', borderTop: '1px solid #E5E7EB', paddingTop: '8px' }}>
+            <strong>Légende :</strong> Cases bleues = résultats déjà enregistrés • Cases blanches = à compléter • Cases à droite = à cocher quand le test est fait
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
 const ClassManagementSupabase = () => {
-  // Récupération de l'année scolaire sélectionnée
   const { selectedSchoolYear, currentSchoolYear } = useSchoolYear();
 
-  // États principaux
   const [selectedClass, setSelectedClass] = useState(null);
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
@@ -43,12 +186,10 @@ const ClassManagementSupabase = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // États pour l'interface
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState('grid');
   const [studentsCount, setStudentsCount] = useState({});
 
-  // États pour les modals
   const [showAddStudentModal, setShowAddStudentModal] = useState(false);
   const [showEditStudentModal, setShowEditStudentModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -56,7 +197,10 @@ const ClassManagementSupabase = () => {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [editingStudent, setEditingStudent] = useState(null);
 
-  // États pour l'ajout d'élève
+  // États pour les fiches imprimables
+  const [showStudentSheet, setShowStudentSheet] = useState(null);
+  const [showAllSheetsPreview, setShowAllSheetsPreview] = useState(false);
+
   const [newStudent, setNewStudent] = useState({
     firstName: '',
     lastName: '',
@@ -64,13 +208,11 @@ const ClassManagementSupabase = () => {
     gender: ''
   });
 
-  // États pour la création de classe
   const [newClassData, setNewClassData] = useState({
     name: '',
     level: '6ème'
   });
 
-  // Système de couleurs par niveau
   const getLevelColors = (level) => {
     const levelColorMap = {
       '6ème': {
@@ -109,7 +251,6 @@ const ClassManagementSupabase = () => {
     return levelColorMap[level] || levelColorMap['6ème'];
   };
 
-  // Système de couleurs par catégorie de test
   const getCategoryColors = (category) => {
     const categoryColorMap = {
       'ENDURANCE': {
@@ -152,13 +293,11 @@ const ClassManagementSupabase = () => {
     return categoryColorMap[category] || categoryColorMap['ENDURANCE'];
   };
 
-  // Fonction pour obtenir le statut d'un résultat
   const getResultStatus = (studentId, testId) => {
     const key = `${studentId}-${testId}`;
     return results[key] || { status: 'empty' };
   };
 
-  // Fonction pour obtenir les stats d'un élève spécifique
   const getStudentStats = (student) => {
     let completed = 0;
     let withResults = 0;
@@ -186,7 +325,6 @@ const ClassManagementSupabase = () => {
     };
   };
 
-  // Fonctions utilitaires pour l'affichage des élèves
   const getGenderColor = (gender) => {
     if (gender === 'M' || gender === 'Garçon') {
       return 'bg-blue-100 text-blue-800 border-blue-200';
@@ -201,7 +339,6 @@ const ClassManagementSupabase = () => {
     return new Date(birthDate).toLocaleDateString('fr-FR');
   };
 
-  // Chargement initial des classes
   useEffect(() => {
     if (selectedSchoolYear) {
       loadClasses();
@@ -209,7 +346,6 @@ const ClassManagementSupabase = () => {
     }
   }, [selectedSchoolYear]);
 
-  // Chargement des élèves quand une classe est sélectionnée
   useEffect(() => {
     if (selectedClass && selectedSchoolYear) {
       loadStudents(selectedClass.id);
@@ -217,7 +353,6 @@ const ClassManagementSupabase = () => {
     }
   }, [selectedClass, selectedSchoolYear]);
 
-  // Fonction pour charger les tests
   const loadTests = async () => {
     try {
       const { data, error } = await supabase
@@ -236,7 +371,6 @@ const ClassManagementSupabase = () => {
     }
   };
 
-  // Fonction pour charger les résultats
   const loadResults = async (classId) => {
     try {
       const { data, error } = await supabase
@@ -253,7 +387,6 @@ const ClassManagementSupabase = () => {
         return;
       }
 
-      // Transformer les résultats avec format de clé standardisé
       const resultsMap = {};
       (data || []).forEach(result => {
         const key = `${result.student_id}-${result.test_id}`;
@@ -275,7 +408,6 @@ const ClassManagementSupabase = () => {
     }
   };
 
-  // Fonction pour charger les classes
   const loadClasses = async () => {
     try {
       setLoading(true);
@@ -294,7 +426,6 @@ const ClassManagementSupabase = () => {
 
       setClasses(data || []);
 
-      // Charger le nombre d'élèves pour chaque classe
       const counts = {};
       for (const classe of data || []) {
         const { count, error: countError } = await supabase
@@ -317,7 +448,6 @@ const ClassManagementSupabase = () => {
     }
   };
 
-  // Fonction pour charger les élèves d'une classe
   const loadStudents = async (classId) => {
     try {
       const { data, error } = await supabase
@@ -340,7 +470,6 @@ const ClassManagementSupabase = () => {
     }
   };
 
-  // Fonction pour créer une nouvelle classe
   const createClass = async () => {
     try {
       if (!newClassData.name.trim()) {
@@ -365,11 +494,9 @@ const ClassManagementSupabase = () => {
 
       console.log('Classe créée avec succès:', data);
       
-      // Fermer la modal et réinitialiser le formulaire
       setShowCreateClassModal(false);
       setNewClassData({ name: '', level: '6ème' });
       
-      // Recharger les classes
       loadClasses();
       
     } catch (error) {
@@ -378,7 +505,6 @@ const ClassManagementSupabase = () => {
     }
   };
 
-  // Fonction pour ajouter un élève
   const addStudent = async () => {
     try {
       if (!newStudent.firstName.trim() || !newStudent.lastName.trim()) {
@@ -406,11 +532,9 @@ const ClassManagementSupabase = () => {
 
       console.log('Élève ajouté avec succès:', data);
       
-      // Fermer la modal et réinitialiser le formulaire
       setShowAddStudentModal(false);
       setNewStudent({ firstName: '', lastName: '', birthDate: '', gender: '' });
       
-      // Recharger les élèves
       loadStudents(selectedClass.id);
       
     } catch (error) {
@@ -419,7 +543,6 @@ const ClassManagementSupabase = () => {
     }
   };
 
-  // Fonction pour modifier un élève
   const updateStudent = async () => {
     try {
       if (!editingStudent.firstName.trim() || !editingStudent.lastName.trim()) {
@@ -446,11 +569,9 @@ const ClassManagementSupabase = () => {
 
       console.log('Élève modifié avec succès:', data);
       
-      // Fermer la modal et réinitialiser
       setShowEditStudentModal(false);
       setEditingStudent(null);
       
-      // Recharger les élèves
       loadStudents(selectedClass.id);
       
     } catch (error) {
@@ -459,7 +580,6 @@ const ClassManagementSupabase = () => {
     }
   };
 
-  // Fonction pour ouvrir la modal d'édition
   const openEditStudent = (student) => {
     setEditingStudent({
       id: student.id,
@@ -471,7 +591,6 @@ const ClassManagementSupabase = () => {
     setShowEditStudentModal(true);
   };
 
-  // Fonction pour supprimer un élève
   const deleteStudent = async (studentId) => {
     if (!confirm('Êtes-vous sûr de vouloir supprimer cet élève ?')) {
       return;
@@ -489,7 +608,6 @@ const ClassManagementSupabase = () => {
         return;
       }
 
-      // Recharger les élèves
       loadStudents(selectedClass.id);
     } catch (error) {
       console.error('Erreur:', error);
@@ -497,7 +615,6 @@ const ClassManagementSupabase = () => {
     }
   };
 
-  // Fonction pour supprimer une classe
   const deleteClass = async (classToDelete, event) => {
     event.stopPropagation();
 
@@ -506,7 +623,6 @@ const ClassManagementSupabase = () => {
     }
 
     try {
-      // D'abord récupérer les IDs des élèves de cette classe
       const { data: studentsData, error: studentsSelectError } = await supabase
         .from('students')
         .select('id')
@@ -518,7 +634,6 @@ const ClassManagementSupabase = () => {
 
       const studentIds = studentsData?.map(s => s.id) || [];
 
-      // Supprimer les résultats des élèves de cette classe
       if (studentIds.length > 0) {
         const { error: resultsError } = await supabase
           .from('results')
@@ -530,7 +645,6 @@ const ClassManagementSupabase = () => {
         }
       }
 
-      // Supprimer les élèves de cette classe
       const { error: studentsError } = await supabase
         .from('students')
         .delete()
@@ -542,7 +656,6 @@ const ClassManagementSupabase = () => {
         return;
       }
 
-      // Enfin, supprimer la classe
       const { error: classError } = await supabase
         .from('classes')
         .delete()
@@ -556,7 +669,6 @@ const ClassManagementSupabase = () => {
 
       console.log('Classe supprimée avec succès:', classToDelete);
       
-      // Recharger les classes
       loadClasses();
       
     } catch (error) {
@@ -565,23 +677,32 @@ const ClassManagementSupabase = () => {
     }
   };
 
-  // Fonction appelée après import Excel réussi
   const handleStudentsAdded = () => {
     loadStudents(selectedClass.id);
   };
 
-  // Filtrage des élèves pour la recherche
+  // Fonctions pour les fiches
+  const handlePrintStudentSheet = (student) => {
+    setShowStudentSheet(student);
+  };
+
+  const handlePrintAllSheets = () => {
+    if (students.length === 0) {
+      alert('Aucun élève à imprimer dans cette classe');
+      return;
+    }
+    setShowAllSheetsPreview(true);
+  };
+
   const filteredStudents = students.filter(student =>
     `${student.first_name} ${student.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // COMPOSANT DASHBOARD ÉLÈVE
   const StudentDetailView = ({ student }) => {
     if (!student) return null;
     
     const studentStats = getStudentStats(student);
     
-    // Regrouper les tests par catégorie pour affichage compact
     const testsByCategory = tests.reduce((acc, test) => {
       const category = test.category || 'AUTRE';
       if (!acc[category]) acc[category] = [];
@@ -589,7 +710,6 @@ const ClassManagementSupabase = () => {
       return acc;
     }, {});
 
-    // Couleur de la jauge selon le pourcentage
     const getProgressColor = (percentage) => {
       if (percentage >= 80) return 'bg-green-500';
       if (percentage >= 60) return 'bg-yellow-500';
@@ -600,7 +720,6 @@ const ClassManagementSupabase = () => {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
         <div className="bg-white rounded-lg shadow-xl max-w-7xl w-full max-h-[95vh] overflow-hidden">
-          {/* Header compact */}
           <div className="p-4 border-b border-gray-200 flex items-center justify-between">
             <div>
               <h3 className="text-xl font-semibold text-gray-800">
@@ -615,7 +734,6 @@ const ClassManagementSupabase = () => {
               </p>
             </div>
             <div className="flex items-center space-x-4">
-              {/* Stats compactes */}
               <div className="flex items-center space-x-4 text-sm">
                 <div className="text-center">
                   <div className="text-lg font-bold text-green-600">{studentStats.withResults}</div>
@@ -635,7 +753,6 @@ const ClassManagementSupabase = () => {
                 </div>
               </div>
               
-              {/* Jauge compacte */}
               <div className="flex items-center space-x-3">
                 <div className="w-20 bg-gray-200 rounded-full h-2">
                   <div 
@@ -655,7 +772,6 @@ const ClassManagementSupabase = () => {
             </div>
           </div>
           
-          {/* Contenu principal - TABLE COMPACTE PAR CATÉGORIES */}
           <div className="p-6 overflow-y-auto max-h-[calc(95vh-120px)]">
             <div className="space-y-6">
               {Object.entries(testsByCategory).map(([category, categoryTests]) => {
@@ -663,7 +779,6 @@ const ClassManagementSupabase = () => {
                 
                 return (
                   <div key={category} className={`${categoryColors.bg} border ${categoryColors.border} rounded-lg p-4`}>
-                    {/* Header catégorie */}
                     <div className="flex items-center justify-between mb-3">
                       <h4 className={`text-lg font-bold ${categoryColors.text}`}>
                         {category}
@@ -673,7 +788,6 @@ const ClassManagementSupabase = () => {
                       </div>
                     </div>
                     
-                    {/* Grille compacte des tests de cette catégorie */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-3">
                       {categoryTests.map(test => {
                         const result = getResultStatus(student.id, test.id);
@@ -712,12 +826,10 @@ const ClassManagementSupabase = () => {
                             className={`p-3 border-2 ${cardBg} rounded-lg text-left`}
                           >
                             <div className="space-y-2">
-                              {/* Nom du test */}
                               <div className="text-xs font-medium text-gray-700 truncate" title={test.name}>
                                 {test.name}
                               </div>
                               
-                              {/* Statut et résultat */}
                               <div className={`flex items-center space-x-2 ${statusColor}`}>
                                 {statusIcon}
                                 <span className="text-sm font-bold truncate">
@@ -733,7 +845,6 @@ const ClassManagementSupabase = () => {
                 );
               })}
 
-              {/* Message si tous les tests sont faits */}
               {studentStats.remaining === 0 && studentStats.completed > 0 && (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
                   <CheckCircle className="mx-auto text-green-600 mb-2" size={32} />
@@ -752,7 +863,6 @@ const ClassManagementSupabase = () => {
     );
   };
 
-  // Écran de chargement
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -764,7 +874,6 @@ const ClassManagementSupabase = () => {
     );
   }
 
-  // Écran d'erreur
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -782,9 +891,7 @@ const ClassManagementSupabase = () => {
     );
   }
 
-  // VUE LISTE DES CLASSES
   if (!selectedClass) {
-    // Organiser les classes par niveau
     const classesByLevel = {
       '6ème': classes.filter(c => c.level === '6ème').sort((a, b) => a.name.localeCompare(b.name)),
       '5ème': classes.filter(c => c.level === '5ème').sort((a, b) => a.name.localeCompare(b.name)),
@@ -795,13 +902,11 @@ const ClassManagementSupabase = () => {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="max-w-6xl mx-auto px-6">
-          {/* Header avec indication de l'année */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-800 mb-4">Gestion des Classes</h1>
             <p className="text-gray-600">Sélectionnez une classe pour voir et modifier les résultats des élèves</p>
           </div>
 
-          {/* Affichage année scolaire */}
           <div className="bg-white rounded-lg shadow-md p-4 mb-8">
             <div className="flex items-center justify-center space-x-3">
               <Calendar className="text-blue-600" size={20} />
@@ -817,7 +922,6 @@ const ClassManagementSupabase = () => {
             </div>
           </div>
 
-          {/* Message si pas de classes */}
           {classes.length === 0 ? (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-12 text-center">
               <BookOpen size={64} className="mx-auto text-yellow-500 mb-6" />
@@ -841,12 +945,10 @@ const ClassManagementSupabase = () => {
               </div>
             </div>
           ) : (
-            // Grille des classes par niveau
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
               {Object.entries(classesByLevel).map(([level, levelClasses]) => (
                 levelClasses.length > 0 && (
                   <div key={level} className="space-y-6">
-                    {/* En-tête du niveau */}
                     <div className="text-center">
                       <div className="flex items-center justify-center space-x-3">
                         <div className={`w-3 h-3 rounded-full ${getLevelColors(level).dot}`}></div>
@@ -857,7 +959,6 @@ const ClassManagementSupabase = () => {
                       </div>
                     </div>
                     
-                    {/* Classes du niveau */}
                     <div className="space-y-4">
                       {levelClasses.map((classe) => {
                         const colors = getLevelColors(classe.level);
@@ -885,7 +986,6 @@ const ClassManagementSupabase = () => {
                               </div>
                             </button>
                             
-                            {/* Bouton de suppression */}
                             <button
                               onClick={(e) => deleteClass(classe, e)}
                               className="absolute top-2 right-2 p-2 text-red-500 hover:text-red-700 hover:bg-white hover:bg-opacity-90 rounded-full transition-all duration-200"
@@ -898,7 +998,6 @@ const ClassManagementSupabase = () => {
                       })}
                     </div>
 
-                    {/* Bouton ajouter classe pour ce niveau */}
                     <button
                       onClick={() => {
                         setNewClassData({ name: '', level: level });
@@ -918,7 +1017,6 @@ const ClassManagementSupabase = () => {
           )}
         </div>
 
-        {/* Modal Créer Classe */}
         {showCreateClassModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
@@ -989,10 +1087,8 @@ const ClassManagementSupabase = () => {
     );
   }
 
-  // VUE DÉTAILLÉE - ÉLÈVES DE LA CLASSE
   return (
     <div className="container mx-auto px-4 py-6">
-      {/* Header classe avec année */}
       <div className="mb-6">
         <div className="flex items-center space-x-4 mb-4">
           <button
@@ -1010,7 +1106,7 @@ const ClassManagementSupabase = () => {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-2">
-            {selectedClass.level.charAt(0)}{selectedClass.name}
+              {selectedClass.level.charAt(0)}{selectedClass.name}
             </h2>
             <p className="text-gray-600 flex items-center space-x-2">
               <Calendar size={16} />
@@ -1024,6 +1120,14 @@ const ClassManagementSupabase = () => {
           </div>
           
           <div className="flex space-x-3">
+            <button
+              onClick={handlePrintAllSheets}
+              className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+            >
+              <Printer size={18} />
+              <span>Fiches Classe</span>
+            </button>
+            
             <button
               onClick={() => setShowImportModal(true)}
               className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
@@ -1043,7 +1147,6 @@ const ClassManagementSupabase = () => {
         </div>
       </div>
 
-      {/* Barre de contrôles avec recherche et sélecteur de vue */}
       <div className="mb-6 flex items-center justify-between">
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
@@ -1056,7 +1159,6 @@ const ClassManagementSupabase = () => {
           />
         </div>
         
-        {/* Sélecteur de mode d'affichage */}
         <div className="flex items-center space-x-2 bg-gray-100 rounded-lg p-1">
           <button
             onClick={() => setViewMode('grid')}
@@ -1083,7 +1185,6 @@ const ClassManagementSupabase = () => {
         </div>
       </div>
 
-      {/* Affichage des élèves */}
       {filteredStudents.length === 0 ? (
         <div className="text-center py-12">
           <Users className="mx-auto text-gray-400 mb-4" size={48} />
@@ -1107,13 +1208,11 @@ const ClassManagementSupabase = () => {
         </div>
       ) : (
         <>
-          {/* MODE GRILLE */}
           {viewMode === 'grid' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
               {filteredStudents.map((student) => {
                 const studentStats = getStudentStats(student);
                 
-                // Couleur de la jauge selon le pourcentage
                 const getProgressColor = (percentage) => {
                   if (percentage === 100) return 'bg-green-500';
                   if (percentage >= 75) return 'bg-green-400';
@@ -1127,7 +1226,6 @@ const ClassManagementSupabase = () => {
                     key={student.id}
                     className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200 p-4"
                   >
-                    {/* Nom et prénom de l'élève */}
                     <div className="text-center mb-3">
                       <div className="w-12 h-12 mx-auto bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-lg mb-2">
                         {student.first_name.charAt(0)}{student.last_name.charAt(0)}
@@ -1140,7 +1238,6 @@ const ClassManagementSupabase = () => {
                       </div>
                     </div>
                 
-                    {/* Jauge de progression des tests */}
                     <div className="mb-3">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-medium text-gray-700">
@@ -1158,9 +1255,7 @@ const ClassManagementSupabase = () => {
                       </div>
                     </div>
 
-                    {/* Informations */}
                     <div className="space-y-2">
-                      {/* Date de naissance */}
                       <div className="flex items-center text-sm text-gray-600">
                         <Calendar size={14} className="mr-2 flex-shrink-0" />
                         <span className="truncate">
@@ -1168,7 +1263,6 @@ const ClassManagementSupabase = () => {
                         </span>
                       </div>
 
-                      {/* Genre */}
                       {student.gender && (
                         <div className="flex items-center">
                           <div className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${getGenderColor(student.gender)}`}>
@@ -1179,7 +1273,6 @@ const ClassManagementSupabase = () => {
                         </div>
                       )}
 
-                      {/* Année scolaire */}
                       <div className="flex items-center text-sm">
                         <div className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
                           {student.school_year || selectedSchoolYear}
@@ -1187,9 +1280,15 @@ const ClassManagementSupabase = () => {
                       </div>
                     </div>
 
-                    {/* Actions */}
                     <div className="flex justify-between mt-4 pt-3 border-t border-gray-100">
-                      {/* Bouton voir détail */}
+                      <button
+                        onClick={() => handlePrintStudentSheet(student)}
+                        className="p-2 text-purple-600 hover:text-purple-900 hover:bg-purple-50 rounded-md transition-colors"
+                        title="Imprimer fiche élève"
+                      >
+                        <FileText size={16} />
+                      </button>
+                      
                       <button
                         onClick={() => setSelectedStudent(student)}
                         className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-md transition-colors"
@@ -1198,7 +1297,6 @@ const ClassManagementSupabase = () => {
                         <Eye size={16} />
                       </button>
                       
-                      {/* Bouton modifier */}
                       <button
                         onClick={() => openEditStudent(student)}
                         className="p-2 text-orange-600 hover:text-orange-900 hover:bg-orange-50 rounded-md transition-colors"
@@ -1207,7 +1305,6 @@ const ClassManagementSupabase = () => {
                         <Edit3 size={16} />
                       </button>
                       
-                      {/* Bouton supprimer */}
                       <button
                         onClick={() => deleteStudent(student.id)}
                         className="p-2 text-red-600 hover:text-red-900 hover:bg-red-50 rounded-md transition-colors"
@@ -1222,7 +1319,6 @@ const ClassManagementSupabase = () => {
             </div>
           )}
 
-          {/* MODE TABLEAU */}
           {viewMode === 'table' && (
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
               <div className="overflow-x-auto">
@@ -1289,7 +1385,14 @@ const ClassManagementSupabase = () => {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          {/* Bouton voir détail */}
+                          <button
+                            onClick={() => handlePrintStudentSheet(student)}
+                            className="text-purple-600 hover:text-purple-900 mr-3"
+                            title="Fiche élève"
+                          >
+                            <FileText size={16} />
+                          </button>
+                          
                           <button
                             onClick={() => setSelectedStudent(student)}
                             className="text-blue-600 hover:text-blue-900 mr-3"
@@ -1298,7 +1401,6 @@ const ClassManagementSupabase = () => {
                             <Eye size={16} />
                           </button>
                           
-                          {/* Bouton modifier */}
                           <button
                             onClick={() => openEditStudent(student)}
                             className="text-orange-600 hover:text-orange-900 mr-3"
@@ -1307,7 +1409,6 @@ const ClassManagementSupabase = () => {
                             <Edit3 size={16} />
                           </button>
                           
-                          {/* Bouton supprimer */}
                           <button
                             onClick={() => deleteStudent(student.id)}
                             className="text-red-600 hover:text-red-900"
@@ -1326,10 +1427,8 @@ const ClassManagementSupabase = () => {
         </>
       )}
 
-      {/* Dashboard élève */}
       {selectedStudent && <StudentDetailView student={selectedStudent} />}
 
-      {/* Modal Ajouter Élève */}
       {showAddStudentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
@@ -1421,7 +1520,6 @@ const ClassManagementSupabase = () => {
         </div>
       )}
 
-      {/* Modal Modifier Élève */}
       {showEditStudentModal && editingStudent && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
@@ -1513,7 +1611,6 @@ const ClassManagementSupabase = () => {
         </div>
       )}
 
-      {/* Modal Import Excel */}
       <ExcelImportModal
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}
@@ -1522,13 +1619,59 @@ const ClassManagementSupabase = () => {
         onStudentsAdded={handleStudentsAdded}
       />
 
-      {/* Note importante en bas */}
+      {showStudentSheet && (
+        <StudentSheetGenerator
+          student={showStudentSheet}
+          selectedClass={selectedClass}
+          tests={tests}
+          results={results}
+          onClose={() => setShowStudentSheet(null)}
+        />
+      )}
+
+      {showAllSheetsPreview && (
+        <div className="fixed inset-0 bg-white z-50 overflow-auto">
+          <div className="no-print sticky top-0 bg-white border-b p-4 flex justify-between items-center z-10">
+            <h2 className="text-xl font-bold">Aperçu des fiches - {selectedClass.level.charAt(0)}{selectedClass.name}</h2>
+            <div className="flex gap-3">
+              <button
+                onClick={() => window.print()}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+              >
+                <Printer size={18} />
+                Imprimer toutes les fiches
+              </button>
+              <button
+                onClick={() => setShowAllSheetsPreview(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+          
+          <div className="p-4">
+            {students.map((student, index) => (
+              <div key={student.id} style={{ pageBreakBefore: index > 0 ? 'always' : 'auto' }}>
+                <StudentSheetGenerator
+                  student={student}
+                  selectedClass={selectedClass}
+                  tests={tests}
+                  results={results}
+                  onClose={() => {}}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
         <div className="flex items-center space-x-2">
           <CheckCircle className="text-green-600" size={16} />
           <p className="text-sm text-green-700">
-            <strong>Dashboard élève :</strong> Cliquez sur l'icône "œil" à côté d'un élève pour voir 
-            ses résultats détaillés par catégorie de test !
+            <strong>Nouvelles fonctionnalités :</strong> Cliquez sur l'icône "fiche" 📄 pour générer une fiche individuelle à imprimer, 
+            ou utilisez "Fiches Classe" 🖨️ pour imprimer toutes les fiches d'un coup !
           </p>
         </div>
       </div>
