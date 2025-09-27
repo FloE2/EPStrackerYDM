@@ -1,4 +1,4 @@
-// src/components/ClassManagementSupabase.jsx - VERSION AVEC FICHES IMPRIMABLES
+// src/components/ClassManagementSupabase.jsx - VERSION AVEC FICHES IMPRIMABLES CORRIGÉE
 import React, { useState, useEffect } from 'react';
 import { 
   Users, 
@@ -19,161 +19,12 @@ import {
   Target,
   XCircle,
   AlertTriangle,
-  FileText,
   Printer
 } from 'lucide-react';
 
 import { supabase } from './lib/supabase.js';
 import { useSchoolYear } from './contexts/SchoolYearContext';
 import { ExcelImportModal } from './ExcelImportModal';
-
-// Composant pour générer les fiches imprimables
-const StudentSheetGenerator = ({ student, selectedClass, tests, results, onClose }) => {
-  const schoolYear = student.school_year || selectedClass.school_year || '2025-2026';
-  
-  if (!student || !selectedClass || !tests || !Array.isArray(tests)) {
-    return (
-      <div style={{ padding: '20px', textAlign: 'center' }}>
-        <p>Erreur : Données manquantes pour générer la fiche</p>
-        <button onClick={onClose} style={{ marginTop: '10px', padding: '8px 16px', background: '#6B7280', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
-          Fermer
-        </button>
-      </div>
-    );
-  }
-
-  const getResultStatus = (studentId, testId) => {
-    const key = `${studentId}-${testId}`;
-    return results ? results[key] || { status: 'empty' } : { status: 'empty' };
-  };
-
-  const testsByCategory = tests.reduce((acc, test) => {
-    const category = test.category || 'AUTRE';
-    if (!acc[category]) acc[category] = [];
-    acc[category].push(test);
-    return acc;
-  }, {});
-
-  const getCategoryColors = (category) => {
-    const colors = {
-      'ENDURANCE': { bg: '#EFF6FF', border: '#BFDBFE', text: '#1E40AF' },
-      'FORCE': { bg: '#FEE2E2', border: '#FECACA', text: '#991B1B' },
-      'SOUPLESSE': { bg: '#ECFDF5', border: '#A7F3D0', text: '#065F46' },
-      'EQUILIBRE': { bg: '#F3E8FF', border: '#D8B4FE', text: '#6B21A8' },
-      'VITESSE': { bg: '#FEF3C7', border: '#FDE68A', text: '#92400E' },
-      'COORDINATION': { bg: '#E0E7FF', border: '#C7D2FE', text: '#3730A3' }
-    };
-    return colors[category] || { bg: '#F3F4F6', border: '#D1D5DB', text: '#374151' };
-  };
-
-  return (
-    <>
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          #printable-sheet, #printable-sheet * { visibility: visible; }
-          #printable-sheet { position: absolute; left: 0; top: 0; width: 100%; }
-          @page { size: A4 landscape; margin: 10mm; }
-          .no-print { display: none !important; }
-        }
-        @media screen {
-          #printable-sheet {
-            width: 297mm;
-            min-height: 210mm;
-            background: white;
-            margin: 0 auto;
-            padding: 15mm;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-          }
-        }
-        .print-container { font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.4; }
-        .header-section { border-bottom: 3px solid #1E40AF; padding-bottom: 8px; margin-bottom: 12px; }
-        .student-info { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 8px; }
-        .info-box { background: #F3F4F6; padding: 6px 10px; border-radius: 4px; border: 1px solid #D1D5DB; }
-        .categories-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
-        .category-section { border: 2px solid; border-radius: 6px; padding: 8px; break-inside: avoid; }
-        .category-header { font-size: 12pt; font-weight: bold; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid; }
-        .test-row { display: grid; grid-template-columns: 2fr 1fr 30px; gap: 8px; align-items: center; margin-bottom: 8px; padding: 6px; background: white; border-radius: 3px; border: 1px solid #E5E7EB; }
-        .test-name { font-weight: 500; font-size: 10pt; }
-        .result-box { border: 2px solid #9CA3AF; border-radius: 3px; padding: 6px; min-height: 28px; background: white; text-align: center; font-weight: bold; }
-        .result-filled { background: #DBEAFE; border-color: #3B82F6; color: #1E40AF; }
-        .checkbox-validation { width: 20px; height: 20px; border: 2px solid #6B7280; border-radius: 3px; margin: 0 auto; }
-        .validation-section { border: 2px dashed #9CA3AF; border-radius: 6px; padding: 10px; background: #F9FAFB; display: flex; justify-content: space-between; align-items: center; }
-        .signature-box { border-bottom: 2px solid #374151; width: 200px; height: 30px; }
-        .unit-label { font-size: 9pt; color: #6B7280; font-style: italic; }
-      `}</style>
-
-      <div className="no-print" style={{ position: 'fixed', top: 20, right: 20, zIndex: 1000, display: 'flex', gap: '10px' }}>
-        <button onClick={() => window.print()} style={{ background: '#3B82F6', color: 'white', padding: '12px 24px', borderRadius: '8px', border: 'none', fontSize: '14pt', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          🖨️ Imprimer la fiche
-        </button>
-        <button onClick={onClose} style={{ background: '#6B7280', color: 'white', padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12pt' }}>
-          ✕ Fermer
-        </button>
-      </div>
-
-      <div id="printable-sheet">
-        <div className="print-container">
-          <div className="header-section">
-            <h1 style={{ margin: 0, fontSize: '18pt', color: '#1E40AF' }}>FICHE INDIVIDUELLE - TESTS PHYSIQUES</h1>
-          </div>
-
-          <div className="student-info">
-            <div className="info-box"><strong>Élève :</strong> {student.first_name} {student.last_name}</div>
-            <div className="info-box"><strong>Classe :</strong> {selectedClass.level.charAt(0)}{selectedClass.name}</div>
-            <div className="info-box"><strong>Année :</strong> {schoolYear}</div>
-          </div>
-
-          <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', padding: '8px 12px', borderRadius: '4px', marginBottom: '12px', fontSize: '10pt' }}>
-            <strong>📝 Instructions :</strong> Complète cette fiche au fur et à mesure que tu réalises les tests. Les résultats déjà enregistrés sont indiqués. Demande la validation du professeur une fois tous les tests terminés.
-          </div>
-
-          <div className="categories-grid">
-            {Object.entries(testsByCategory).map(([category, categoryTests]) => {
-              const colors = getCategoryColors(category);
-              return (
-                <div key={category} className="category-section" style={{ backgroundColor: colors.bg, borderColor: colors.border }}>
-                  <div className="category-header" style={{ color: colors.text, borderColor: colors.border }}>{category}</div>
-                  {categoryTests.map(test => {
-                    const result = getResultStatus(student.id, test.id);
-                    const hasResult = result.status === 'result';
-                    return (
-                      <div key={test.id} className="test-row">
-                        <div className="test-name">{test.name}<div className="unit-label">({test.unit})</div></div>
-                        <div className={`result-box ${hasResult ? 'result-filled' : ''}`}>
-                          {hasResult ? `${result.value} ${test.unit}` : ''}
-                        </div>
-                        <div className="checkbox-validation"></div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="validation-section">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-              <div style={{ width: '30px', height: '30px', border: '3px solid #059669', borderRadius: '4px' }}></div>
-              <div>
-                <strong style={{ fontSize: '11pt' }}>✓ VALIDATION PROFESSEUR</strong>
-                <div style={{ fontSize: '9pt', color: '#6B7280' }}>Cocher quand tous les tests sont terminés et validés</div>
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: '10pt', marginBottom: '5px' }}>Signature :</div>
-              <div className="signature-box"></div>
-            </div>
-          </div>
-
-          <div style={{ marginTop: '12px', fontSize: '9pt', color: '#6B7280', borderTop: '1px solid #E5E7EB', paddingTop: '8px' }}>
-            <strong>Légende :</strong> Cases bleues = résultats déjà enregistrés • Cases blanches = à compléter • Cases à droite = à cocher quand le test est fait
-          </div>
-        </div>
-      </div>
-    </>
-  );
-};
 
 const ClassManagementSupabase = () => {
   const { selectedSchoolYear, currentSchoolYear } = useSchoolYear();
@@ -196,10 +47,6 @@ const ClassManagementSupabase = () => {
   const [showCreateClassModal, setShowCreateClassModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [editingStudent, setEditingStudent] = useState(null);
-
-  // États pour les fiches imprimables
-  const [showStudentSheet, setShowStudentSheet] = useState(null);
-  const [showAllSheetsPreview, setShowAllSheetsPreview] = useState(false);
 
   const [newStudent, setNewStudent] = useState({
     firstName: '',
@@ -681,17 +528,133 @@ const ClassManagementSupabase = () => {
     loadStudents(selectedClass.id);
   };
 
-  // Fonctions pour les fiches
-  const handlePrintStudentSheet = (student) => {
-    setShowStudentSheet(student);
-  };
-
-  const handlePrintAllSheets = () => {
-    if (students.length === 0) {
+  const generatePDFSheets = () => {
+    if (filteredStudents.length === 0) {
       alert('Aucun élève à imprimer dans cette classe');
       return;
     }
-    setShowAllSheetsPreview(true);
+
+    // Générer le HTML pour toutes les fiches
+    let htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Fiches ${selectedClass.level}${selectedClass.name} - ${selectedSchoolYear}</title>
+  <style>
+    @page { size: A4 landscape; margin: 8mm; }
+    body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+    .student-sheet { 
+      page-break-after: always; 
+      width: 277mm; 
+      height: 194mm;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    .student-sheet:last-child { page-break-after: avoid; }
+    .header { border-bottom: 2px solid #1E40AF; padding-bottom: 4px; margin-bottom: 6px; }
+    .header h1 { margin: 0; font-size: 14pt; color: #1E40AF; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+    .info-box { background: #F3F4F6; padding: 3px 6px; border-radius: 3px; border: 1px solid #D1D5DB; font-size: 8pt; }
+    .instructions { background: #FEF3C7; border: 1px solid #FCD34D; padding: 3px 6px; border-radius: 3px; margin-bottom: 6px; font-size: 7pt; }
+    .categories { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 6px; }
+    .category { border: 2px solid; border-radius: 4px; padding: 4px; }
+    .category-header { font-size: 9pt; font-weight: bold; margin-bottom: 2px; padding-bottom: 2px; border-bottom: 1px solid; }
+    .test-row { display: grid; grid-template-columns: 2fr 1fr 20px; gap: 4px; align-items: center; margin-bottom: 3px; padding: 2px; background: white; border-radius: 2px; border: 1px solid #E5E7EB; }
+    .test-name { font-weight: 500; font-size: 7pt; line-height: 1.1; }
+    .unit { font-size: 6pt; color: #6B7280; font-style: italic; }
+    .result-box { border: 1px solid #9CA3AF; border-radius: 2px; padding: 2px; min-height: 18px; text-align: center; font-weight: bold; font-size: 7pt; }
+    .result-filled { background: #DBEAFE; border-color: #3B82F6; color: #1E40AF; }
+    .checkbox { width: 14px; height: 14px; border: 1px solid #6B7280; border-radius: 2px; margin: 0 auto; }
+    .validation { border: 2px dashed #9CA3AF; border-radius: 4px; padding: 4px; background: #F9FAFB; display: flex; justify-content: space-between; align-items: center; }
+    .signature-box { border-bottom: 2px solid #374151; width: 140px; height: 20px; }
+    .legend { margin-top: 4px; font-size: 6pt; color: #6B7280; border-top: 1px solid #E5E7EB; padding-top: 3px; }
+  </style>
+</head>
+<body>`;
+
+    const testsByCategory = tests.reduce((acc, test) => {
+      const category = test.category || 'AUTRE';
+      if (!acc[category]) acc[category] = [];
+      acc[category].push(test);
+      return acc;
+    }, {});
+
+    filteredStudents.forEach((student) => {
+      const schoolYear = student.school_year || selectedClass.school_year || selectedSchoolYear;
+      
+      const categoryColors = {
+        'ENDURANCE': { bg: '#EFF6FF', border: '#BFDBFE', text: '#1E40AF' },
+        'FORCE': { bg: '#FEE2E2', border: '#FECACA', text: '#991B1B' },
+        'SOUPLESSE': { bg: '#ECFDF5', border: '#A7F3D0', text: '#065F46' },
+        'EQUILIBRE': { bg: '#F3E8FF', border: '#D8B4FE', text: '#6B21A8' },
+        'VITESSE': { bg: '#FEF3C7', border: '#FDE68A', text: '#92400E' },
+        'COORDINATION': { bg: '#E0E7FF', border: '#C7D2FE', text: '#3730A3' }
+      };
+
+      htmlContent += `
+<div class="student-sheet">
+  <div class="header"><h1>FICHE INDIVIDUELLE - TESTS PHYSIQUES</h1></div>
+  <div class="info-grid">
+    <div class="info-box"><strong>Élève :</strong> ${student.first_name} ${student.last_name}</div>
+    <div class="info-box"><strong>Classe :</strong> ${selectedClass.level.charAt(0)}${selectedClass.name}</div>
+    <div class="info-box"><strong>Année :</strong> ${schoolYear}</div>
+  </div>
+  <div class="instructions"><strong>📝 Instructions :</strong> Complète cette fiche au fur et à mesure que tu réalises les tests. Les résultats déjà enregistrés sont indiqués. Demande la validation du professeur une fois tous les tests terminés.</div>
+  <div class="categories">`;
+
+      Object.entries(testsByCategory).forEach(([category, categoryTests]) => {
+        const colors = categoryColors[category] || { bg: '#F3F4F6', border: '#D1D5DB', text: '#374151' };
+        htmlContent += `
+    <div class="category" style="background-color: ${colors.bg}; border-color: ${colors.border};">
+      <div class="category-header" style="color: ${colors.text}; border-color: ${colors.border};">${category}</div>`;
+        
+        categoryTests.forEach(test => {
+          const result = getResultStatus(student.id, test.id);
+          const hasResult = result.status === 'result';
+          htmlContent += `
+      <div class="test-row">
+        <div class="test-name">${test.name}<div class="unit">(${test.unit})</div></div>
+        <div class="result-box ${hasResult ? 'result-filled' : ''}">${hasResult ? `${result.value} ${test.unit}` : ''}</div>
+        <div class="checkbox"></div>
+      </div>`;
+        });
+        
+        htmlContent += `</div>`;
+      });
+
+      htmlContent += `
+  </div>
+  <div class="validation">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="width: 20px; height: 20px; border: 2px solid #059669; border-radius: 3px;"></div>
+      <div>
+        <strong style="font-size: 8pt;">✓ VALIDATION PROFESSEUR</strong>
+        <div style="font-size: 6pt; color: #6B7280;">Cocher quand tous les tests sont terminés et validés</div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size: 7pt; margin-bottom: 2px;">Signature :</div>
+      <div class="signature-box"></div>
+    </div>
+  </div>
+  <div class="legend"><strong>Légende :</strong> Cases bleues = résultats déjà enregistrés • Cases blanches = à compléter • Cases à droite = à cocher quand le test est fait</div>
+</div>`;
+    });
+
+    htmlContent += `
+</body>
+</html>`;
+
+    // Ouvrir dans une nouvelle fenêtre pour impression/export PDF
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    
+    // Attendre le chargement puis déclencher l'impression
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
   };
 
   const filteredStudents = students.filter(student =>
@@ -1121,11 +1084,11 @@ const ClassManagementSupabase = () => {
           
           <div className="flex space-x-3">
             <button
-              onClick={handlePrintAllSheets}
+              onClick={generatePDFSheets}
               className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
             >
               <Printer size={18} />
-              <span>Fiches Classe</span>
+              <span>Exporter PDF Classe</span>
             </button>
             
             <button
@@ -1282,14 +1245,6 @@ const ClassManagementSupabase = () => {
 
                     <div className="flex justify-between mt-4 pt-3 border-t border-gray-100">
                       <button
-                        onClick={() => handlePrintStudentSheet(student)}
-                        className="p-2 text-purple-600 hover:text-purple-900 hover:bg-purple-50 rounded-md transition-colors"
-                        title="Imprimer fiche élève"
-                      >
-                        <FileText size={16} />
-                      </button>
-                      
-                      <button
                         onClick={() => setSelectedStudent(student)}
                         className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-md transition-colors"
                         title="Voir les résultats de l'élève"
@@ -1385,14 +1340,6 @@ const ClassManagementSupabase = () => {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <button
-                            onClick={() => handlePrintStudentSheet(student)}
-                            className="text-purple-600 hover:text-purple-900 mr-3"
-                            title="Fiche élève"
-                          >
-                            <FileText size={16} />
-                          </button>
-                          
                           <button
                             onClick={() => setSelectedStudent(student)}
                             className="text-blue-600 hover:text-blue-900 mr-3"
@@ -1618,53 +1565,6 @@ const ClassManagementSupabase = () => {
         existingStudents={students}
         onStudentsAdded={handleStudentsAdded}
       />
-
-      {showStudentSheet && (
-        <StudentSheetGenerator
-          student={showStudentSheet}
-          selectedClass={selectedClass}
-          tests={tests}
-          results={results}
-          onClose={() => setShowStudentSheet(null)}
-        />
-      )}
-
-      {showAllSheetsPreview && (
-        <div className="fixed inset-0 bg-white z-50 overflow-auto">
-          <div className="no-print sticky top-0 bg-white border-b p-4 flex justify-between items-center z-10">
-            <h2 className="text-xl font-bold">Aperçu des fiches - {selectedClass.level.charAt(0)}{selectedClass.name}</h2>
-            <div className="flex gap-3">
-              <button
-                onClick={() => window.print()}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
-              >
-                <Printer size={18} />
-                Imprimer toutes les fiches
-              </button>
-              <button
-                onClick={() => setShowAllSheetsPreview(false)}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-              >
-                Fermer
-              </button>
-            </div>
-          </div>
-          
-          <div className="p-4">
-            {students.map((student, index) => (
-              <div key={student.id} style={{ pageBreakBefore: index > 0 ? 'always' : 'auto' }}>
-                <StudentSheetGenerator
-                  student={student}
-                  selectedClass={selectedClass}
-                  tests={tests}
-                  results={results}
-                  onClose={() => {}}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
         <div className="flex items-center space-x-2">
