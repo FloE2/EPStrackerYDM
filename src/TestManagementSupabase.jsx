@@ -1,381 +1,947 @@
+// IndividualFitnessCard.jsx - VERSION COMPLÈTE AVEC DISPENSÉ ET ABSENT
 import React, { useState, useEffect } from 'react';
 import { 
-  Activity, 
-  Target, 
-  GitBranch, 
-  Users, 
-  Zap, 
-  Clock,
-  Search,
-  Filter,
-  Eye,
-  Loader,
-  AlertCircle,
-  TestTube,
-  Plus,
-  Save,
-  X,
-  Copy,
-  Edit,
-  Trash2,
-  CheckCircle
+  Activity, Target, GitBranch, Users, Zap, Minimize2,
+  Info, User, Search, Calendar, BookOpen, RefreshCw,
+  AlertCircle, ChevronLeft, Download, ArrowLeft, ChevronRight, Heart
 } from 'lucide-react';
 
-// UTILISE L'INSTANCE CENTRALISÉE - PAS DE CRÉATION D'INSTANCE
 import { supabase } from './lib/supabase.js';
+import { useSchoolYear } from './contexts/SchoolYearContext.jsx';
 
-const TestManagementSupabase = () => {
-  const [tests, setTests] = useState([]);
-  const [testsByCategory, setTestsByCategory] = useState({});
-  const [loading, setLoading] = useState(true);
+const IndividualFitnessCard = () => {
+  const { selectedSchoolYear, currentSchoolYear } = useSchoolYear();
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [classes, setClasses] = useState([]);
+  const [selectedClass, setSelectedClass] = useState(null);
+  const [students, setStudents] = useState([]);
+  const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTest, setSelectedTest] = useState(null);
-  const [showModal, setShowModal] = useState(false);
-  const [editingTest, setEditingTest] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
-  const [deleting, setDeleting] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    category: 'ENDURANCE',
-    description: '',
-    unit: '',
-    duration: 'courte (moins de 5 min)',
-    trials: '1',
-    quality_evaluated: '',
-    material: [],
-    evaluation: '',
-    validation: '',
-    full_description: ''
-  });
+  const [studentResults, setStudentResults] = useState(null);
+  const [studentsCount, setStudentsCount] = useState({});
+  const [allTests, setAllTests] = useState([]);
+  const [categories, setCategories] = useState({});
+  const [testsLoading, setTestsLoading] = useState(true);
 
-  const categoryConfig = {
-    ENDURANCE: { 
-      icon: Activity, 
-      bg: 'bg-blue-50',
-      border: 'border-blue-200',
-      text: 'text-blue-700',
-      name: 'Endurance'
-    },
-    FORCE: { 
-      icon: Target, 
-      bg: 'bg-red-50',
-      border: 'border-red-200',
-      text: 'text-red-700',
-      name: 'Force'
-    },
-    SOUPLESSE: { 
-      icon: GitBranch, 
-      bg: 'bg-green-50',
-      border: 'border-green-200',
-      text: 'text-green-700',
-      name: 'Souplesse'
-    },
-    EQUILIBRE: { 
-      icon: Users, 
-      bg: 'bg-purple-50',
-      border: 'border-purple-200',
-      text: 'text-purple-700',
-      name: 'Équilibre'
-    },
-    VITESSE: { 
-      icon: Zap, 
-      bg: 'bg-yellow-50',
-      border: 'border-yellow-200',
-      text: 'text-yellow-700',
-      name: 'Vitesse'
-    },
-    COORDINATION: { 
-      icon: Clock, 
-      bg: 'bg-indigo-50',
-      border: 'border-indigo-200',
-      text: 'text-indigo-700',
-      name: 'Coordination'
+  // Fonctions utilitaires pour détecter dispenses/absences
+  const isDispensedOrAbsent = (value) => {
+    if (!value) return false;
+    const val = String(value).trim().toUpperCase();
+    return val === 'DISP' || val === 'DISPENSÉ' || val === 'ABS' || val === 'ABSENT';
+  };
+
+  const isDispensed = (value) => {
+    if (!value) return false;
+    const val = String(value).trim().toUpperCase();
+    return val === 'DISP' || val === 'DISPENSÉ';
+  };
+
+  const isAbsent = (value) => {
+    if (!value) return false;
+    const val = String(value).trim().toUpperCase();
+    return val === 'ABS' || val === 'ABSENT';
+  };
+
+  const calculatePercentiles = (values) => {
+    const sorted = values.sort((a, b) => a - b);
+    const n = sorted.length;
+    return {
+      p10: sorted[Math.floor(n * 0.10)],
+      p25: sorted[Math.floor(n * 0.25)], 
+      p50: sorted[Math.floor(n * 0.50)],
+      p75: sorted[Math.floor(n * 0.75)],
+      p90: sorted[Math.floor(n * 0.90)]
+    };
+  };
+
+  const getTestDirection = (testName) => {
+    const timeBasedTests = ['SPRINTS 10 x 5', '30 mètres','FLAMINGO'];
+    const speedBasedTests = ['36"-24"', 'VITESSE'];
+    const higherIsBetterTests = [
+      'COOPER', 'DEMI-COOPER', 'NAVETTE', 'RECTANGLE MAGIQUE', 
+      'SAUT', 'LANCER', 'CHAISE', 'PLANCHE', 'SUSPENSION', 'POIGNÉE',
+      'FOULÉES', 'TRIPLE SAUT', 'MONOPODAL', 'SOUPLESSE'
+    ];
+
+    if (timeBasedTests.some(test => testName.includes(test))) return false;
+    if (speedBasedTests.some(test => testName.includes(test))) return true;
+    if (higherIsBetterTests.some(test => testName.includes(test))) return true;
+    return true;
+  };
+
+  const getTestData = async (testName, studentLevel, studentGender) => {
+    try {
+      const { data: results, error } = await supabase
+        .from('results')
+        .select(`
+          value,
+          tests!inner(name),
+          students!inner(gender, school_year, classes!inner(level))
+        `)
+        .eq('tests.name', testName)
+        .eq('students.gender', studentGender)
+        .eq('students.classes.level', studentLevel)
+        .eq('students.school_year', selectedSchoolYear)
+        .not('value', 'is', null);
+
+      if (error) {
+        console.error('Erreur Supabase:', error);
+        return null;
+      }
+
+      if (!results || results.length < 5) {
+        return {
+          sampleSize: results?.length || 0,
+          insufficientData: true,
+          message: "Échantillon trop faible"
+        };
+      }
+
+      // IMPORTANT: Filtrer DISP, dispensé, ABS, absent
+      const values = results
+        .map(r => r.value)
+        .filter(v => !isDispensedOrAbsent(v))
+        .map(v => parseFloat(v))
+        .filter(v => !isNaN(v));
+      
+      if (values.length < 5) {
+        return {
+          sampleSize: values.length,
+          insufficientData: true,
+          message: "Échantillon trop faible"
+        };
+      }
+
+      const percentiles = calculatePercentiles(values);
+      const higherIsBetter = getTestDirection(testName);
+      const bestPerformance = higherIsBetter ? Math.max(...values) : Math.min(...values);
+      
+      return {
+        sampleSize: values.length,
+        min: Math.min(...values),
+        max: Math.max(...values),
+        moyenne: values.reduce((a, b) => a + b, 0) / values.length,
+        percentiles,
+        bestPerformance,
+        higherIsBetter,
+        insufficientData: false,
+        allValues: values
+      };
+    } catch (error) {
+      console.error('Erreur récupération données:', error);
+      return null;
     }
   };
 
-  useEffect(() => {
-    loadTests();
-  }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        if (showDeleteConfirm) {
-          setShowDeleteConfirm(null);
-        } else if (showModal) {
-          closeModal();
-        }
+  const calculateDeterministicScore = (value, percentiles, higherIsBetter, min, max) => {
+    const numericValue = parseFloat(value);
+    
+    if (higherIsBetter) {
+      if (numericValue >= percentiles.p90) {
+        const range = max - percentiles.p90;
+        if (range === 0) return 100;
+        return Math.round(85 + ((numericValue - percentiles.p90) / range) * 15);
+      } else if (numericValue >= percentiles.p75) {
+        const range = percentiles.p90 - percentiles.p75;
+        if (range === 0) return 77;
+        return Math.round(70 + ((numericValue - percentiles.p75) / range) * 14);
+      } else if (numericValue >= percentiles.p50) {
+        const range = percentiles.p75 - percentiles.p50;
+        if (range === 0) return 62;
+        return Math.round(55 + ((numericValue - percentiles.p50) / range) * 14);
+      } else if (numericValue >= percentiles.p25) {
+        const range = percentiles.p50 - percentiles.p25;
+        if (range === 0) return 47;
+        return Math.round(40 + ((numericValue - percentiles.p25) / range) * 14);
+      } else {
+        const range = percentiles.p25 - min;
+        if (range === 0) return 25;
+        return Math.round(10 + Math.max(0, (numericValue - min) / range) * 29);
       }
-    };
-    
-    if (showModal || showDeleteConfirm) {
-      document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
+    } else {
+      if (numericValue <= percentiles.p10) {
+        const range = percentiles.p10 - min;
+        if (range === 0) return 100;
+        return Math.round(85 + ((percentiles.p10 - numericValue) / range) * 15);
+      } else if (numericValue <= percentiles.p25) {
+        const range = percentiles.p25 - percentiles.p10;
+        if (range === 0) return 77;
+        return Math.round(70 + ((percentiles.p25 - numericValue) / range) * 14);
+      } else if (numericValue <= percentiles.p50) {
+        const range = percentiles.p50 - percentiles.p25;
+        if (range === 0) return 62;
+        return Math.round(55 + ((percentiles.p50 - numericValue) / range) * 14);
+      } else if (numericValue <= percentiles.p75) {
+        const range = percentiles.p75 - percentiles.p50;
+        if (range === 0) return 47;
+        return Math.round(40 + ((percentiles.p75 - numericValue) / range) * 14);
+      } else {
+        const range = max - percentiles.p75;
+        if (range === 0) return 25;
+        return Math.round(10 + Math.max(0, (max - numericValue) / range) * 29);
+      }
     }
-    
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'unset';
-    };
-  }, [showModal, showDeleteConfirm]);
+  };
 
-  const loadTests = async () => {
+  const scoreTestWithDynamicBareme = async (value, testName, studentLevel, studentGender) => {
+    const testData = await getTestData(testName, studentLevel, studentGender);
+    
+    if (!testData || testData.insufficientData) {
+      return {
+        score: null,
+        message: testData?.message || "Données insuffisantes",
+        method: "echantillon_insuffisant"
+      };
+    }
+
+    const numericValue = parseFloat(value);
+    if (isNaN(numericValue)) return { score: 0, message: "Valeur invalide", method: "erreur" };
+
+    const { percentiles, higherIsBetter, min, max } = testData;
+    const score = calculateDeterministicScore(numericValue, percentiles, higherIsBetter, min, max);
+    
+    let level;
+    if (score >= 85) level = "Excellent";
+    else if (score >= 70) level = "Bon";
+    else if (score >= 55) level = "Correct";
+    else level = "Faible";
+
+    return {
+      score,
+      level,
+      message: `Calculé sur ${testData.sampleSize} élèves`,
+      method: "bareme_dynamique"
+    };
+  };
+
+  const calculateCategoryScoreWithDynamicBaremes = async (tests, studentLevel, studentGender) => {
+    if (tests.length === 0) return { score: 0, details: [], hasInsufficientData: false };
+
+    let totalScore = 0;
+    let validTests = 0;
+    const details = [];
+
+    for (const test of tests) {
+      const testValue = test.value;
+      let result;
+      
+      // Gestion spéciale pour DISP et ABS
+      if (isDispensed(testValue)) {
+        result = { score: null, message: "Dispensé", method: "dispense" };
+      } else if (isAbsent(testValue)) {
+        result = { score: null, message: "Absent", method: "absent" };
+      } else {
+        result = await scoreTestWithDynamicBareme(testValue, test.name, studentLevel, studentGender);
+      }
+      
+      details.push({
+        testName: test.name,
+        value: testValue,
+        unit: test.unit,
+        result
+      });
+
+      // Ne compter que les tests avec score valide (pas DISP, ABS ou échantillon insuffisant)
+      if (!isDispensedOrAbsent(testValue) && result.score !== null && result.method !== "echantillon_insuffisant") {
+        totalScore += result.score;
+        validTests++;
+      }
+    }
+
+    return {
+      score: validTests > 0 ? Math.round(totalScore / validTests) : 0,
+      details,
+      validTests,
+      totalTests: tests.length
+    };
+  };
+
+  const baseCategoryConfig = {
+    ENDURANCE: { name: "Endurance", shortName: "END", icon: Activity, color: "#3b82f6", bgColor: "from-blue-50 to-blue-100", borderColor: "border-blue-200" },
+    FORCE: { name: "Force", shortName: "FOR", icon: Target, color: "#ef4444", bgColor: "from-red-50 to-red-100", borderColor: "border-red-200" },
+    VITESSE: { name: "Vitesse", shortName: "VIT", icon: Zap, color: "#eab308", bgColor: "from-yellow-50 to-yellow-100", borderColor: "border-yellow-200" },
+    COORDINATION: { name: "Coordination", shortName: "COO", icon: GitBranch, color: "#a855f7", bgColor: "from-purple-50 to-purple-100", borderColor: "border-purple-200" },
+    EQUILIBRE: { name: "Équilibre", shortName: "EQU", icon: Users, color: "#6366f1", bgColor: "from-indigo-50 to-indigo-100", borderColor: "border-indigo-200" },
+    SOUPLESSE: { name: "Souplesse", shortName: "SOU", icon: Minimize2, color: "#22c55e", bgColor: "from-green-50 to-green-100", borderColor: "border-green-200" }
+  };
+
+  const loadAllTests = async () => {
+    try {
+      setTestsLoading(true);
+      const { data: testsData, error } = await supabase
+        .from('tests')
+        .select('*')
+        .order('category')
+        .order('name');
+
+      if (error) throw error;
+
+      setAllTests(testsData || []);
+      const dynamicCategories = {};
+      
+      Object.keys(baseCategoryConfig).forEach(categoryKey => {
+        dynamicCategories[categoryKey] = {
+          ...baseCategoryConfig[categoryKey],
+          tests: []
+        };
+      });
+
+      testsData?.forEach(test => {
+        if (dynamicCategories[test.category]) {
+          dynamicCategories[test.category].tests.push({
+            id: test.id,
+            name: test.name,
+            shortName: test.name.length > 15 ? test.name.substring(0, 12) + '...' : test.name,
+            unit: test.unit || ''
+          });
+        }
+      });
+
+      setCategories(dynamicCategories);
+    } catch (err) {
+      console.error('Erreur chargement tests:', err);
+      setError(`Erreur: ${err.message}`);
+    } finally {
+      setTestsLoading(false);
+    }
+  };
+
+  const getLevelColors = (level) => {
+    const colors = {
+      '6ème': { primary: 'bg-blue-500', light: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', gradient: 'from-blue-500 to-blue-600', accent: 'bg-blue-600', hover: 'hover:bg-blue-100' },
+      '5ème': { primary: 'bg-emerald-500', light: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', gradient: 'from-emerald-500 to-emerald-600', accent: 'bg-emerald-600', hover: 'hover:bg-emerald-100' },
+      '4ème': { primary: 'bg-orange-500', light: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-700', gradient: 'from-orange-500 to-orange-600', accent: 'bg-orange-600', hover: 'hover:bg-orange-100' },
+      '3ème': { primary: 'bg-purple-500', light: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', gradient: 'from-purple-500 to-purple-600', accent: 'bg-purple-600', hover: 'hover:bg-purple-100' }
+    };
+    return colors[level] || colors['6ème'];
+  };
+
+  const getEvaluationColor = (score) => {
+    if (score >= 85) return "#22c55e";
+    if (score >= 70) return "#3b82f6";
+    if (score >= 55) return "#eab308";
+    return "#ef4444";
+  };
+
+  const getScoreLevel = (score) => {
+    if (score >= 85) return "Excellent";
+    if (score >= 70) return "Bon";
+    if (score >= 55) return "Correct";
+    return "À améliorer";
+  };
+
+  const getScoreColor = (score) => getEvaluationColor(score);
+
+  const getCategoryAdviceShort = (category, score) => {
+    const shortAdvice = {
+      ENDURANCE: { excellent: "Continue cardio 3-4x/sem.", bon: "Augmente durée.", correct: "Jogging 2-3x/sem.", faible: "Marche, escaliers." },
+      FORCE: { excellent: "Maintiens exercices variés.", bon: "Ajoute renforcement.", correct: "Pompes, gainage, squats.", faible: "Gainage facile." },
+      VITESSE: { excellent: "Continue sprints.", bon: "Travaille agilité.", correct: "Petites accélérations.", faible: "Coordination simple." },
+      COORDINATION: { excellent: "Activités techniques.", bon: "Nouveaux mouvements.", correct: "Équilibre dynamique.", faible: "Marche ligne." },
+      EQUILIBRE: { excellent: "Défis complexes.", bon: "Yeux fermés.", correct: "Équilibre stat/dyn.", faible: "Un pied." },
+      SOUPLESSE: { excellent: "Étirements quotidiens.", bon: "Après effort.", correct: "10-15 min/jour.", faible: "5-10 min doux." }
+    };
+
+    let level = score >= 85 ? 'excellent' : score >= 70 ? 'bon' : score >= 55 ? 'correct' : 'faible';
+    return shortAdvice[category]?.[level] || "Continue !";
+  };
+
+  const generateOptimizedHTML = (student, results, globalScore) => {
+    const currentDate = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+    return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>Fiche EPS - ${student.first_name} ${student.last_name}</title>
+<style>
+@page{size:A4;margin:8mm}*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;line-height:1.3;color:#333;background:#f9fafb}
+.header{background:#fff;border-radius:8px;padding:12px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
+.student-info h1{font-size:20px;color:#1f2937;margin-bottom:4px}.student-details{font-size:9px;color:#6b7280}
+.global-score-badge{text-align:center;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;padding:8px 16px;border-radius:8px}
+.global-score-badge .score{font-size:24px;font-weight:bold}.global-score-badge .label{font-size:8px;opacity:0.9;text-transform:uppercase}
+.categories-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.category-card{border-radius:8px;padding:12px;box-shadow:0 2px 4px rgba(0,0,0,0.1);page-break-inside:avoid}
+.category-card.endurance{background:linear-gradient(135deg,#dbeafe 0%,#bfdbfe 100%);border-left:4px solid #3b82f6}
+.category-card.force{background:linear-gradient(135deg,#fee2e2 0%,#fecaca 100%);border-left:4px solid #ef4444}
+.category-card.vitesse{background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%);border-left:4px solid #eab308}
+.category-card.coordination{background:linear-gradient(135deg,#f3e8ff 0%,#e9d5ff 100%);border-left:4px solid #a855f7}
+.category-card.equilibre{background:linear-gradient(135deg,#e0e7ff 0%,#c7d2fe 100%);border-left:4px solid #6366f1}
+.category-card.souplesse{background:linear-gradient(135deg,#d1fae5 0%,#a7f3d0 100%);border-left:4px solid #22c55e}
+.category-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.category-title-section{display:flex;align-items:center;gap:8px}
+.category-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;font-size:14px}
+.endurance .category-icon{background:#3b82f6}.force .category-icon{background:#ef4444}.vitesse .category-icon{background:#eab308}
+.coordination .category-icon{background:#a855f7}.equilibre .category-icon{background:#6366f1}.souplesse .category-icon{background:#22c55e}
+.category-info h3{font-size:12px;font-weight:bold;color:#1f2937;margin-bottom:2px}.category-info p{font-size:8px;color:#6b7280}
+.circular-gauge{position:relative;width:60px;height:60px;display:inline-block}
+.gauge-text{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;width:100%}
+.gauge-score{font-size:16px;font-weight:bold;display:block;line-height:1}.gauge-label{font-size:7px;color:#6b7280;display:block}
+.tests-list{margin-bottom:8px}.test-row{margin-bottom:6px}
+.test-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+.test-name{font-size:9px;font-weight:500;color:#374151}.test-value{font-size:9px;color:#1f2937;font-weight:600}
+.test-value.dispensed{color:#f59e0b;font-style:italic}.test-value.absent{color:#6b7280;font-style:italic}
+.progress-bar{width:100%;height:6px;background:rgba(0,0,0,0.1);border-radius:3px;overflow:hidden}
+.advice-box{background:rgba(255,255,255,0.7);border-radius:6px;padding:8px;display:flex;gap:6px;align-items:start}
+.advice-icon{width:16px;height:16px;border-radius:50%;background:rgba(59,130,246,0.2);display:flex;align-items:center;justify-content:center;font-size:10px;color:#3b82f6;flex-shrink:0}
+.advice-content h4{font-size:8px;font-weight:bold;color:#1f2937;margin-bottom:2px}.advice-content p{font-size:8px;color:#4b5563;line-height:1.4}
+.footer{background:#fff;border-radius:8px;padding:10px;margin-top:10px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
+.footer h3{font-size:11px;font-weight:bold;color:#1f2937;margin-bottom:4px}.footer p{font-size:9px;color:#6b7280;line-height:1.4}
+.footer-meta{font-size:7px;color:#9ca3af;margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb}
+</style></head><body>
+<div class="header"><div class="student-info"><h1>${student.first_name} ${student.last_name}</h1>
+<div class="student-details">${student.classes.level}${student.classes.name} • ${student.gender === 'M' ? 'Garçon' : 'Fille'} • Année ${selectedSchoolYear}</div></div>
+<div class="global-score-badge"><div class="score">${globalScore}/100</div><div class="label">Score Global</div></div></div>
+<div class="categories-grid">${Object.entries(categories).map(([key, category]) => {
+  const result = results?.[key] || { score: 0, testsCompleted: 0, totalTests: category.tests?.length || 0, details: [], level: "Non évalué" };
+  const categoryClass = key.toLowerCase();
+  const scoreColor = getEvaluationColor(result.score);
+  const circumference = 2 * Math.PI * 22;
+  const strokeDashoffset = circumference - (result.score / 100) * circumference;
+  
+  return `<div class="category-card ${categoryClass}">
+<div class="category-header"><div class="category-title-section"><div class="category-icon">${category.shortName}</div>
+<div class="category-info"><h3>${category.name}</h3><p>${result.testsCompleted}/${result.totalTests} • ${result.level}</p></div></div>
+<div class="circular-gauge"><svg width="60" height="60" viewBox="0 0 60 60">
+<circle cx="30" cy="30" r="22" fill="none" stroke="#e5e7eb" stroke-width="6"/>
+<circle cx="30" cy="30" r="22" fill="none" stroke="${scoreColor}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${circumference}" stroke-dashoffset="${strokeDashoffset}" transform="rotate(-90 30 30)"/>
+</svg><div class="gauge-text"><span class="gauge-score" style="color:${scoreColor}">${result.score}</span><span class="gauge-label">/100</span></div></div></div>
+<div class="tests-list">${category.tests?.slice(0, 4).map(test => {
+  const testDetail = result.details?.find(d => d.testName === test.name);
+  const hasResult = !!testDetail;
+  const valueIsDispensed = hasResult && isDispensed(testDetail.value);
+  const valueIsAbsent = hasResult && isAbsent(testDetail.value);
+  
+  let testScore = 0;
+  if (hasResult && testDetail.result && !valueIsDispensed && !valueIsAbsent) {
+    if (testDetail.result.method !== "echantillon_insuffisant") {
+      testScore = testDetail.result.score || 0;
+    }
+  }
+  
+  const testColor = hasResult && testScore > 0 ? getEvaluationColor(testScore) : "#d1d5db";
+  let displayValue, valueClass = '';
+  if (!hasResult) {
+    displayValue = '-';
+  } else if (valueIsDispensed) {
+    displayValue = 'Dispensé';
+    valueClass = 'dispensed';
+  } else if (valueIsAbsent) {
+    displayValue = 'Absent';
+    valueClass = 'absent';
+  } else {
+    displayValue = `${testDetail.value} ${testDetail.unit}`;
+  }
+  
+  return `<div class="test-row"><div class="test-header"><span class="test-name">${test.shortName}</span>
+<span class="test-value ${valueClass}">${displayValue}</span></div>
+<div class="progress-bar"><div style="height:100%;width:${testScore}%;background:${testColor};border-radius:3px"></div></div></div>`;
+}).join('') || '<div class="test-row"><span class="test-name">Aucun test</span></div>'}</div>
+<div class="advice-box"><div class="advice-icon">i</div><div class="advice-content"><h4>Conseil</h4><p>${getCategoryAdviceShort(key, result.score)}</p></div></div></div>`;
+}).join('')}</div>
+<div class="footer"><h3>Recommandation pour ${student.first_name}</h3><p>${
+  globalScore >= 85 ? "Excellente condition ! 60 min/jour (OMS)." :
+  globalScore >= 70 ? "Bon niveau ! Vise 60 min/jour." :
+  globalScore >= 55 ? "Bonnes bases ! Régularité = succès." :
+  "Chaque effort compte ! Progresse vers 60 min/jour."
+}</p><div class="footer-meta">Généré le ${currentDate} • EPS Tracker YDM</div></div></body></html>`;
+  };
+
+  const exportToPDF = () => {
+    if (!selectedStudent || !studentResults) {
+      alert('Aucune donnée à exporter.');
+      return;
+    }
+
+    const globalScore = (() => {
+      const categoriesWithResults = Object.values(studentResults).filter(cat => cat.score > 0);
+      if (categoriesWithResults.length === 0) return 0;
+      return Math.round(categoriesWithResults.reduce((acc, cat) => acc + cat.score, 0) / categoriesWithResults.length);
+    })();
+
+    const printContent = generateOptimizedHTML(selectedStudent, studentResults, globalScore);
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 250);
+    };
+  };
+
+  useEffect(() => {
+    if (selectedSchoolYear) {
+      loadAllTests();
+      loadClassesAndCounts();
+    }
+  }, [selectedSchoolYear]);
+
+  useEffect(() => {
+    if (selectedClass && selectedSchoolYear) {
+      loadStudentsForClass(selectedClass.id);
+    }
+  }, [selectedClass, selectedSchoolYear]);
+
+  const loadClassesAndCounts = async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      console.log('🔗 TestManagement: Utilisation instance Supabase centralisée');
-      
-      const { data, error } = await supabase
-        .from('tests')
+
+      const { data: classesData, error: classesError } = await supabase
+        .from('classes')
         .select('*')
-        .order('category', { ascending: true });
-      
-      if (error) throw error;
-      
-      const testsByCat = {};
-      data.forEach(test => {
-        if (!testsByCat[test.category]) {
-          testsByCat[test.category] = [];
-        }
-        testsByCat[test.category].push(test);
-      });
-      
-      setTests(data);
-      setTestsByCategory(testsByCat);
+        .eq('school_year', selectedSchoolYear)
+        .order('level')
+        .order('name');
+
+      if (classesError) throw classesError;
+      setClasses(classesData || []);
+
+      const counts = {};
+      for (const classe of classesData) {
+        const { count } = await supabase
+          .from('students')
+          .select('*', { count: 'exact', head: true })
+          .eq('class_id', classe.id)
+          .eq('school_year', selectedSchoolYear);
+        counts[classe.id] = count || 0;
+      }
+      setStudentsCount(counts);
     } catch (err) {
+      console.error('Erreur chargement:', err);
       setError(err.message);
-      console.error('Erreur lors du chargement des tests:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const resetForm = () => {
-    setFormData({
-      name: '',
-      category: 'ENDURANCE',
-      description: '',
-      unit: '',
-      duration: 'courte (moins de 5 min)',
-      trials: '1',
-      quality_evaluated: '',
-      material: [],
-      evaluation: '',
-      validation: '',
-      full_description: ''
-    });
-    setEditingTest(null);
-  };
-
-  const closeModal = () => {
-    setShowModal(false);
-    setEditingTest(null);
-    resetForm();
-  };
-
-  const openCreateModal = () => {
-    resetForm();
-    setEditingTest(null);
-    setShowModal(true);
-  };
-
-  const duplicateTest = (test) => {
-    setEditingTest(null);
-    
-    const duplicatedData = {
-      name: `${test.name} - Copie`,
-      category: test.category || 'ENDURANCE',
-      description: test.description || '',
-      unit: test.unit || '',
-      duration: test.duration || 'courte (moins de 5 min)',
-      trials: test.trials || '1',
-      quality_evaluated: test.quality_evaluated || '',
-      material: Array.isArray(test.material) ? [...test.material] : [],
-      evaluation: test.evaluation || '',
-      validation: test.validation || '',
-      full_description: test.full_description || ''
-    };
-    
-    setFormData(duplicatedData);
-    setTimeout(() => setShowModal(true), 10);
-  };
-
-  const editTest = (test) => {
-    setFormData({
-      name: test.name || '',
-      category: test.category || 'ENDURANCE',
-      description: test.description || '',
-      unit: test.unit || '',
-      duration: test.duration || 'courte (moins de 5 min)',
-      trials: test.trials || '1',
-      quality_evaluated: test.quality_evaluated || '',
-      material: Array.isArray(test.material) ? [...test.material] : [],
-      evaluation: test.evaluation || '',
-      validation: test.validation || '',
-      full_description: test.full_description || ''
-    });
-    setEditingTest(test);
-    setShowModal(true);
-  };
-
-  const handleDelete = async (testToDelete) => {
+  const loadStudentsForClass = async (classId) => {
     try {
-      setDeleting(true);
-      
-      // Vérifier s'il y a des résultats associés à ce test
-      const { data: results, error: checkError } = await supabase
-        .from('results')
-        .select('id')
-        .eq('test_id', testToDelete.id)
-        .limit(1);
-      
-      if (checkError) {
-        throw new Error(`Erreur lors de la vérification: ${checkError.message}`);
-      }
-      
-      if (results && results.length > 0) {
-        alert('⚠️ Ce test ne peut pas être supprimé car il contient des résultats d\'élèves. Vous devez d\'abord supprimer tous les résultats associés.');
-        return;
-      }
-      
-      // Supprimer le test
-      const { error: deleteError } = await supabase
-        .from('tests')
-        .delete()
-        .eq('id', testToDelete.id);
-      
-      if (deleteError) {
-        throw new Error(`Erreur de suppression: ${deleteError.message}`);
-      }
-      
-      alert('✅ Test supprimé avec succès !');
-      
-      // Recharger les données
-      await loadTests();
-      setShowDeleteConfirm(null);
-      
-    } catch (error) {
-      console.error('Erreur complète:', error);
-      alert(`Erreur lors de la suppression: ${error.message}`);
+      setLoading(true);
+      const { data: studentsData, error } = await supabase
+        .from('students')
+        .select(`*, classes!inner(id, name, level)`)
+        .eq('class_id', classId)
+        .eq('school_year', selectedSchoolYear)
+        .order('last_name');
+
+      if (error) throw error;
+      setStudents(studentsData || []);
+    } catch (err) {
+      console.error('Erreur élèves:', err);
+      setError(err.message);
     } finally {
-      setDeleting(false);
+      setLoading(false);
     }
   };
 
-  const handleSave = async () => {
-    if (!formData.name.trim() || !formData.description.trim()) {
-      alert('Veuillez remplir au minimum le nom et la description du test');
-      return;
-    }
-
-    try {
-      setSaving(true);
-      
-      const baseTestData = {
-        name: formData.name.trim(),
-        category: formData.category,
-        description: formData.description.trim(),
-        unit: formData.unit.trim() || null,
-        duration: formData.duration,
-        trials: formData.trials,
-        quality_evaluated: formData.quality_evaluated.trim() || null,
-        material: formData.material.filter(item => item && item.trim() !== ''),
-        evaluation: formData.evaluation.trim() || null,
-        validation: formData.validation.trim() || null,
-        full_description: formData.full_description.trim() || null
+  const processStudentResultsWithDynamicBaremes = async (results, student) => {
+    const categoryScores = {};
+    
+    Object.keys(categories).forEach(catKey => {
+      categoryScores[catKey] = { 
+        score: 0, 
+        tests: [], 
+        level: "Non évalué",
+        testsCompleted: 0,
+        totalTests: categories[catKey]?.tests?.length || 0,
+        details: []
       };
+    });
 
-      if (editingTest && editingTest.id) {
-        const { data, error } = await supabase
-          .from('tests')
-          .update(baseTestData)
-          .eq('id', editingTest.id)
-          .select();
+    results.forEach(result => {
+      const testCategory = result.tests.category;
+      if (categoryScores[testCategory]) {
+        categoryScores[testCategory].tests.push({
+          name: result.tests.name,
+          value: result.value,
+          unit: result.tests.unit
+        });
         
-        if (error) {
-          console.error('Erreur Supabase (édition):', error);
-          throw new Error(`Erreur d'édition: ${error.message}`);
+        // IMPORTANT: Ne compter que si NON dispensé et NON absent
+        if (!isDispensedOrAbsent(result.value)) {
+          categoryScores[testCategory].testsCompleted++;
         }
-        
-        console.log('Test modifié:', data);
-        alert('Test modifié avec succès !');
-        
-      } else {
-        const { data, error } = await supabase
-          .from('tests')
-          .insert([baseTestData])
-          .select();
-        
-        if (error) {
-          console.error('Erreur Supabase (création):', error);
-          throw new Error(`Erreur de création: ${error.message}`);
-        }
-        
-        console.log('Test créé:', data);
-        alert('Test créé avec succès !');
       }
+    });
 
-      await loadTests();
-      closeModal();
+    for (const categoryName of Object.keys(categoryScores)) {
+      const categoryData = categoryScores[categoryName];
       
-    } catch (error) {
-      console.error('Erreur complète:', error);
-      alert(`Erreur lors de la sauvegarde: ${error.message}`);
+      if (categoryData.tests.length > 0) {
+        try {
+          const result = await calculateCategoryScoreWithDynamicBaremes(
+            categoryData.tests, 
+            student?.classes?.level, 
+            student?.gender
+          );
+          
+          categoryData.score = result.score;
+          categoryData.details = result.details;
+          categoryData.level = getScoreLevel(result.score);
+        } catch (error) {
+          console.error(`Erreur calcul ${categoryName}:`, error);
+          categoryData.score = 50;
+          categoryData.level = "Correct";
+        }
+      }
+    }
+
+    return categoryScores;
+  };
+
+  const loadStudentResults = async (studentId, student) => {
+    try {
+      setLoading(true);
+      const { data: results, error } = await supabase
+        .from('results')
+        .select(`*, tests!inner(name, category, unit), students!inner(school_year)`)
+        .eq('student_id', studentId)
+        .eq('students.school_year', selectedSchoolYear);
+
+      if (error) throw error;
+      const processedResults = await processStudentResultsWithDynamicBaremes(results || [], student);
+      setStudentResults(processedResults);
+    } catch (err) {
+      console.error('Erreur résultats:', err);
+      setError(err.message);
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   };
 
-  const addMaterialItem = () => {
-    setFormData(prev => ({
-      ...prev,
-      material: [...prev.material, '']
-    }));
+  const CircularGauge = ({ score, color, size = 100 }) => {
+    const radius = 35;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (score / 100) * circumference;
+    
+    return (
+      <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="transform -rotate-90">
+          <circle cx={size / 2} cy={size / 2} r={radius} stroke="#e5e7eb" strokeWidth="6" fill="none" />
+          <circle cx={size / 2} cy={size / 2} r={radius} stroke={color} strokeWidth="6" fill="none"
+            strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} className="transition-all duration-1000 ease-out" strokeLinecap="round" />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-2xl font-bold" style={{ color }}>{score}</span>
+          <span className="text-xs text-gray-500">/ 100</span>
+        </div>
+      </div>
+    );
   };
 
-  const updateMaterialItem = (index, value) => {
-    setFormData(prev => ({
-      ...prev,
-      material: prev.material.map((item, i) => i === index ? value : item)
-    }));
+  const ClassSelectionView = () => {
+    const classesByLevel = {
+      '6ème': classes.filter(c => c.level === '6ème').sort((a, b) => a.name.localeCompare(b.name)),
+      '5ème': classes.filter(c => c.level === '5ème').sort((a, b) => a.name.localeCompare(b.name)),
+      '4ème': classes.filter(c => c.level === '4ème').sort((a, b) => a.name.localeCompare(b.name)),
+      '3ème': classes.filter(c => c.level === '3ème').sort((a, b) => a.name.localeCompare(b.name))
+    };
+
+    return (
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-4">Fiches Individuelles - EPS SANTÉ</h1>
+            <p className="text-gray-600">Sélectionnez une classe</p>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-md p-4 mb-8">
+            <div className="flex items-center justify-center space-x-3">
+              <Calendar className="text-blue-600" size={20} />
+              <span className="font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full">{selectedSchoolYear}</span>
+            </div>
+          </div>
+
+          {testsLoading ? (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+              <RefreshCw className="animate-spin mx-auto text-blue-500 mb-4" size={32} />
+              <h3 className="text-lg font-semibold text-blue-800">Chargement...</h3>
+            </div>
+          ) : classes.length === 0 ? (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-12 text-center">
+              <BookOpen size={64} className="mx-auto text-yellow-500 mb-6" />
+              <h3 className="text-2xl font-semibold text-yellow-800">Aucune classe pour {selectedSchoolYear}</h3>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+              {Object.entries(classesByLevel).map(([level, levelClasses]) => (
+                levelClasses.length > 0 && (
+                  <div key={level} className="space-y-6">
+                    <div className="text-center">
+                      <h2 className={`text-xl font-bold ${getLevelColors(level).text}`}>{level}</h2>
+                    </div>
+                    <div className="space-y-4">
+                      {levelClasses.map((classe) => {
+                        const colors = getLevelColors(classe.level);
+                        const studentCount = studentsCount[classe.id] || 0;
+                        
+                        return (
+                          <button key={classe.id} onClick={() => setSelectedClass(classe)}
+                            className={`w-full p-6 rounded-xl border-2 transition-all transform hover:scale-105 hover:shadow-lg ${colors.light} ${colors.border} ${colors.hover}`}>
+                            <div className={`text-2xl font-bold mb-4 ${colors.text}`}>{classe.level.charAt(0)}{classe.name}</div>
+                            <div className={`flex items-center justify-center space-x-2 text-sm ${colors.text} opacity-80`}>
+                              <Users size={16} />
+                              <span>{studentCount} élève{studentCount !== 1 ? 's' : ''}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
-  const removeMaterialItem = (index) => {
-    setFormData(prev => ({
-      ...prev,
-      material: prev.material.filter((_, i) => i !== index)
-    }));
+  const StudentSelectionView = () => {
+    const colors = getLevelColors(selectedClass.level);
+    const filteredStudents = students.filter(student =>
+      `${student.first_name} ${student.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    return (
+      <div className="min-h-screen bg-gray-100">
+        <div className="max-w-6xl mx-auto px-4 py-6">
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={() => { setSelectedClass(null); setSearchTerm(''); }}
+                className="flex items-center space-x-2 px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">
+                <ArrowLeft size={16} /><span>Retour</span>
+              </button>
+              <div className="flex items-center space-x-3">
+                <div className={`p-2 ${colors.accent} rounded-xl`}>
+                  <User className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-800">Fiches - {selectedClass.level.charAt(0)}{selectedClass.name}</h1>
+                </div>
+              </div>
+            </div>
+
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
+              <input type="text" placeholder="Rechercher..." value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="bg-white rounded-lg p-12 text-center">
+              <RefreshCw className="animate-spin mx-auto text-blue-500 mb-4" size={32} />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredStudents.map(student => (
+                <div key={student.id}
+                  onClick={() => { setSelectedStudent(student); loadStudentResults(student.id, student); }}
+                  className={`bg-white rounded-lg shadow-md p-4 cursor-pointer hover:shadow-lg hover:scale-105 border-l-4 ${colors.accent}`}>
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-12 h-12 ${colors.light} rounded-xl flex items-center justify-center`}>
+                      <User className={`${colors.text}`} size={20} />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-bold text-gray-800">{student.first_name} {student.last_name}</h3>
+                      <p className={`text-sm ${colors.text} font-medium`}>{student.classes.name}</p>
+                    </div>
+                    <ChevronRight className="text-gray-400" size={16} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
-  // Filtrer les tests selon les critères
-  const filteredTests = tests.filter(test => {
-    const matchesSearch = test.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         test.description.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'all' || test.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+  const StudentFitnessCardView = () => {
+    if (!selectedStudent?.classes) return null;
 
-  // Grouper les tests filtrés par catégorie
-  const filteredTestsByCategory = {};
-  filteredTests.forEach(test => {
-    if (!filteredTestsByCategory[test.category]) {
-      filteredTestsByCategory[test.category] = [];
-    }
-    filteredTestsByCategory[test.category].push(test);
-  });
+    const colors = getLevelColors(selectedStudent.classes.level);
+    const globalScore = studentResults ? (() => {
+      const categoriesWithResults = Object.values(studentResults).filter(cat => cat.score > 0);
+      if (categoriesWithResults.length === 0) return 0;
+      return Math.round(categoriesWithResults.reduce((acc, cat) => acc + cat.score, 0) / categoriesWithResults.length);
+    })() : 0;
+
+    return (
+      <div className="min-h-screen bg-gray-100">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="flex items-center justify-between mb-6">
+            <button onClick={() => { setSelectedStudent(null); setStudentResults(null); }}
+              className="flex items-center space-x-2 px-4 py-2 bg-white rounded-lg shadow-md hover:shadow-lg">
+              <ChevronLeft size={16} /><span>Retour</span>
+            </button>
+            <button onClick={exportToPDF}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-md">
+              <Download size={16} /><span>Export PDF</span>
+            </button>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-6">
+                <div className={`w-20 h-20 bg-gradient-to-br ${colors.gradient} rounded-2xl flex items-center justify-center text-white`}>
+                  <User size={28} />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800 mb-2">
+                    {selectedStudent.first_name} {selectedStudent.last_name}
+                  </h1>
+                  <div className="flex items-center space-x-4 text-gray-600">
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium bg-gradient-to-r ${colors.gradient} text-white`}>
+                      {selectedStudent.classes.name}
+                    </span>
+                    <span>{selectedStudent.classes.level}</span>
+                    <span>{selectedStudent.gender === 'M' ? 'Garçon' : 'Fille'}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold mb-1" style={{ color: getScoreColor(globalScore) }}>
+                  {globalScore}/100
+                </div>
+                <div className="text-sm text-gray-600 uppercase">Score global</div>
+              </div>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="bg-white rounded-lg p-12 text-center">
+              <RefreshCw className="animate-spin mx-auto text-blue-500 mb-4" size={32} />
+              <p className="text-gray-600">Calcul...</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Object.entries(categories).map(([key, category]) => {
+                const result = studentResults?.[key] || { 
+                  score: 0, 
+                  testsCompleted: 0, 
+                  totalTests: category.tests?.length || 0,
+                  details: []
+                };
+                
+                const IconComponent = category.icon;
+                const evaluationColor = getEvaluationColor(result.score);
+                
+                return (
+                  <div key={key} className={`bg-gradient-to-br ${category.bgColor} rounded-lg shadow-md border ${category.borderColor} p-4`}>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center space-x-2">
+                        <div className="p-2 rounded-lg text-white" style={{ backgroundColor: category.color }}>
+                          <IconComponent size={18} />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-gray-800 text-sm" style={{ color: category.color }}>
+                            {category.name}
+                          </h3>
+                          <p className="text-xs text-gray-600">{result.level}</p>
+                        </div>
+                      </div>
+                      <span className="text-xs text-gray-500">{result.testsCompleted}/{result.totalTests}</span>
+                    </div>
+
+                    <div className="flex justify-center mb-4">
+                      <CircularGauge score={result.score} color={evaluationColor} size={80} />
+                    </div>
+
+                    <div className="space-y-2 mb-4">
+                      {category.tests?.map((test, index) => {
+                        const testDetail = result.details?.find(d => d.testName === test.name);
+                        const hasResult = !!testDetail;
+                        const valueIsDispensed = hasResult && isDispensed(testDetail.value);
+                        const valueIsAbsent = hasResult && isAbsent(testDetail.value);
+                        
+                        let testScore = 0;
+                        if (hasResult && testDetail.result && !valueIsDispensed && !valueIsAbsent) {
+                          if (testDetail.result.method !== "echantillon_insuffisant") {
+                            testScore = testDetail.result.score || 0;
+                          }
+                        }
+                        
+                        const testEvaluationColor = hasResult && testScore > 0 ? getEvaluationColor(testScore) : "#d1d5db";
+                        
+                        let displayValue;
+                        let valueStyle = "text-gray-600";
+                        if (!hasResult) {
+                          displayValue = '-';
+                        } else if (valueIsDispensed) {
+                          displayValue = 'Dispensé';
+                          valueStyle = "text-amber-600 italic";
+                        } else if (valueIsAbsent) {
+                          displayValue = 'Absent';
+                          valueStyle = "text-gray-500 italic";
+                        } else {
+                          displayValue = `${testDetail.value} ${testDetail.unit}`;
+                        }
+                        
+                        return (
+                          <div key={index} className="space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs font-medium text-gray-700">{test.shortName}</span>
+                              <span className={`text-xs ${valueStyle}`}>{displayValue}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-1.5">
+                              <div className="h-1.5 rounded-full transition-all duration-1000"
+                                style={{ width: `${testScore}%`, backgroundColor: testEvaluationColor }}>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="bg-white/70 rounded-lg p-3">
+                      <div className="flex items-start space-x-2">
+                        <Info size={14} className="text-gray-500 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <h5 className="text-xs font-semibold text-gray-800 mb-1">Conseil</h5>
+                          <p className="text-xs text-gray-700">{getCategoryAdviceShort(key, result.score)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="mt-6 bg-white rounded-lg shadow-md p-6 text-center">
+            <div className="flex items-center justify-center space-x-2 mb-3">
+              <Heart className="text-red-500" size={20} />
+              <h3 className="text-lg font-bold text-gray-800">Recommandations pour {selectedStudent.first_name}</h3>
+            </div>
+            <p className="text-gray-700 max-w-3xl mx-auto">
+              {globalScore >= 85 ? 
+                "Excellente condition ! Continue (60 min/jour OMS)." :
+              globalScore >= 70 ? 
+                "Bon niveau ! Vise 60 min/jour." :
+              globalScore >= 55 ? 
+                "Bonnes bases ! Régularité = succès." :
+                "Chaque effort compte ! Progresse vers 60 min/jour."}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   if (error) {
     return (
       <div className="container mx-auto px-4 py-6">
         <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
           <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
-          <h2 className="text-lg font-semibold text-red-700 mb-2">Erreur de chargement</h2>
+          <h2 className="text-lg font-semibold text-red-700 mb-2">Erreur</h2>
           <p className="text-red-600 mb-4">{error}</p>
-          <button onClick={loadTests} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+          <button onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
             Réessayer
           </button>
         </div>
@@ -383,554 +949,20 @@ const TestManagementSupabase = () => {
     );
   }
 
-  if (loading) {
+  if ((loading || testsLoading) && !selectedClass && !selectedStudent) {
     return (
       <div className="container mx-auto px-4 py-6">
         <div className="flex items-center justify-center py-12">
-          <Loader className="animate-spin text-blue-500 mr-3" size={24} />
-          <span className="text-gray-600">Chargement des tests depuis Supabase (instance centralisée)...</span>
+          <RefreshCw className="animate-spin text-blue-500 mr-3" size={24} />
+          <span className="text-gray-600">Chargement...</span>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="container mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">Tests Physiques par Catégorie</h2>
-            <p className="text-gray-600">Consultez les {tests.length} tests disponibles - Instance Supabase centralisée</p>
-          </div>
-          <button
-            onClick={openCreateModal}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus size={18} />
-            <span>Nouveau test</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-          <div className="flex-1 lg:max-w-md">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-              <input
-                type="text"
-                placeholder="Rechercher un test..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          </div>
-          <div className="flex items-center space-x-4">
-            <Filter size={18} className="text-gray-400" />
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="all">Toutes les catégories</option>
-              {Object.keys(categoryConfig).map(category => (
-                <option key={category} value={category}>{categoryConfig[category].name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Category Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
-        {Object.entries(categoryConfig).map(([category, config]) => {
-          const IconComponent = config.icon;
-          const count = testsByCategory[category]?.length || 0;
-          
-          return (
-            <div
-              key={category}
-              className={`${config.bg} ${config.border} border-2 rounded-lg p-4 text-center cursor-pointer transition-all hover:shadow-md ${
-                selectedCategory === category ? 'ring-2 ring-blue-400' : ''
-              }`}
-              onClick={() => setSelectedCategory(selectedCategory === category ? 'all' : category)}
-            >
-              <IconComponent className={`mx-auto mb-2 ${config.text}`} size={24} />
-              <div className="text-sm font-medium text-gray-800">{config.name}</div>
-              <div className={`text-lg font-bold ${config.text}`}>{count}</div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Tests by Category */}
-      {filteredTests.length === 0 ? (
-        <div className="bg-white rounded-lg shadow-md p-12 text-center">
-          <TestTube size={48} className="mx-auto text-gray-400 mb-4" />
-          <p className="text-gray-500 mb-2">
-            {searchTerm || selectedCategory !== 'all' 
-              ? 'Aucun test trouvé avec ces critères'
-              : 'Aucun test disponible'
-            }
-          </p>
-          {(searchTerm || selectedCategory !== 'all') && (
-            <button
-              onClick={() => {
-                setSearchTerm('');
-                setSelectedCategory('all');
-              }}
-              className="text-blue-600 hover:text-blue-800 font-medium"
-            >
-              Réinitialiser les filtres
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {Object.entries(filteredTestsByCategory).map(([category, categoryTests]) => {
-            const config = categoryConfig[category] || categoryConfig.FORCE;
-            const IconComponent = config.icon;
-            
-            return (
-              <div key={category} className={`${config.bg} ${config.border} border-2 rounded-xl p-6`}>
-                {/* Category Header */}
-                <div className={`flex items-center space-x-3 mb-6 ${config.text}`}>
-                  <IconComponent size={28} />
-                  <div>
-                    <h3 className="text-xl font-bold">{config.name}</h3>
-                    <p className="text-sm opacity-80">
-                      {categoryTests.length} test{categoryTests.length > 1 ? 's' : ''} disponible{categoryTests.length > 1 ? 's' : ''}
-                    </p>
-                  </div>
-                </div>
-                
-                {/* Tests Grid for this category */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {categoryTests.map(test => (
-                    <div key={test.id} className="bg-white border border-gray-200 rounded-lg p-4 hover:border-gray-300 hover:shadow-md transition-all duration-200">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-center space-x-2">
-                          <IconComponent className={config.text} size={18} />
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text} bg-opacity-60`}>
-                            {test.unit}
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              duplicateTest(test);
-                            }}
-                            className="text-gray-400 hover:text-green-600 transition-colors p-1"
-                            title="Dupliquer ce test"
-                          >
-                            <Copy size={14} />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              editTest(test);
-                            }}
-                            className="text-gray-400 hover:text-orange-600 transition-colors p-1"
-                            title="Modifier ce test"
-                          >
-                            <Edit size={14} />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowDeleteConfirm(test);
-                            }}
-                            className="text-gray-400 hover:text-red-600 transition-colors p-1"
-                            title="Supprimer ce test"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                          <button
-                            onClick={() => setSelectedTest(test)}
-                            className="text-gray-400 hover:text-blue-600 transition-colors p-1"
-                            title="Voir les détails"
-                          >
-                            <Eye size={16} />
-                          </button>
-                        </div>
-                      </div>
-                      
-                      <h4 className="font-semibold text-gray-800 mb-2">{test.name}</h4>
-                      <p className="text-sm text-gray-600 mb-3 line-clamp-2">{test.description}</p>
-                      
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span className="font-medium">{test.quality_evaluated}</span>
-                        <span className="text-right">
-                          <div>{test.duration}</div>
-                          <div>{test.trials} essai{test.trials > 1 ? 's' : ''}</div>
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="p-2 bg-red-100 rounded-full">
-                <Trash2 className="text-red-600" size={20} />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-800">Confirmer la suppression</h3>
-            </div>
-            
-            <p className="text-gray-600 mb-4">
-              Êtes-vous sûr de vouloir supprimer le test <strong>"{showDeleteConfirm.name}"</strong> ?
-            </p>
-            
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-              <p className="text-yellow-800 text-sm">
-                ⚠️ Cette action est irréversible. Le test sera définitivement supprimé de la base de données.
-              </p>
-            </div>
-            
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => setShowDeleteConfirm(null)}
-                disabled={deleting}
-                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 disabled:opacity-50 transition-colors"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={() => handleDelete(showDeleteConfirm)}
-                disabled={deleting}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
-              >
-                {deleting ? (
-                  <>
-                    <Loader className="animate-spin" size={16} />
-                    <span>Suppression...</span>
-                  </>
-                ) : (
-                  <>
-                    <Trash2 size={16} />
-                    <span>Supprimer</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Test Details Modal */}
-      {selectedTest && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className={categoryConfig[selectedTest.category]?.text || 'text-gray-700'}>
-                    {selectedTest.category === 'ENDURANCE' && <Activity size={24} />}
-                    {selectedTest.category === 'FORCE' && <Target size={24} />}
-                    {selectedTest.category === 'SOUPLESSE' && <GitBranch size={24} />}
-                    {selectedTest.category === 'EQUILIBRE' && <Users size={24} />}
-                    {selectedTest.category === 'VITESSE' && <Zap size={24} />}
-                    {selectedTest.category === 'COORDINATION' && <Clock size={24} />}
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-800">{selectedTest.name}</h2>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${categoryConfig[selectedTest.category]?.bg} ${categoryConfig[selectedTest.category]?.text}`}>
-                      {categoryConfig[selectedTest.category]?.name}
-                    </span>
-                  </div>
-                </div>
-                <button onClick={() => setSelectedTest(null)} className="text-gray-400 hover:text-gray-600">
-                  <X size={24} />
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3">Informations générales</h3>
-                  <div className="space-y-2">
-                    <div><span className="font-medium text-gray-700">Unité:</span> <span className="ml-2 text-gray-600">{selectedTest.unit}</span></div>
-                    <div><span className="font-medium text-gray-700">Durée:</span> <span className="ml-2 text-gray-600">{selectedTest.duration}</span></div>
-                    <div><span className="font-medium text-gray-700">Nombre d'essais:</span> <span className="ml-2 text-gray-600">{selectedTest.trials}</span></div>
-                    <div><span className="font-medium text-gray-700">Qualité évaluée:</span> <span className="ml-2 text-gray-600">{selectedTest.quality_evaluated}</span></div>
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3">Matériel nécessaire</h3>
-                  <ul className="list-disc list-inside space-y-1 text-gray-600">
-                    {selectedTest.material && selectedTest.material.length > 0 
-                      ? selectedTest.material.map((item, index) => <li key={index}>{item}</li>)
-                      : <li>Non spécifié</li>
-                    }
-                  </ul>
-                </div>
-              </div>
-              
-              <div className="mt-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">Description</h3>
-                <p className="text-gray-600 mb-4">{selectedTest.description}</p>
-                
-                {selectedTest.full_description && (
-                  <>
-                    <h4 className="font-semibold text-gray-800 mb-2">Consignes de réalisation</h4>
-                    <p className="text-gray-600 mb-4">{selectedTest.full_description}</p>
-                  </>
-                )}
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-                <div>
-                  <h4 className="font-semibold text-gray-800 mb-2">Évaluation</h4>
-                  <p className="text-gray-600">{selectedTest.evaluation}</p>
-                </div>
-                <div>
-                  <h4 className="font-semibold text-gray-800 mb-2">Validation</h4>
-                  <p className="text-gray-600">{selectedTest.validation}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Create/Edit Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={(e) => e.target === e.currentTarget && closeModal()}>
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold text-gray-800">
-                  {editingTest ? "Modifier le test" : "Créer un nouveau test"}
-                </h2>
-                <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 transition-colors">
-                  <X size={24} />
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-6 space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Nom du test *</label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Ex: Test de vitesse"
-                    autoFocus
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Catégorie</label>
-                  <select
-                    value={formData.category}
-                    onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    {Object.entries(categoryConfig).map(([category, config]) => (
-                      <option key={category} value={category}>{config.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Description *</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  rows={3}
-                  placeholder="Description courte du test"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Unité de mesure</label>
-                  <input
-                    type="text"
-                    value={formData.unit}
-                    onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Ex: cm, sec, kg..."
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Durée</label>
-                  <select
-                    value={formData.duration}
-                    onChange={(e) => setFormData(prev => ({ ...prev, duration: e.target.value }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="courte (moins de 5 min)">courte (moins de 5 min)</option>
-                    <option value="moyenne (5-10 min)">moyenne (5-10 min)</option>
-                    <option value="longue (plus de 10 min)">longue (plus de 10 min)</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Nombre d'essais</label>
-                  <input
-                    type="text"
-                    value={formData.trials}
-                    onChange={(e) => setFormData(prev => ({ ...prev, trials: e.target.value }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Ex: 1, 2, 3..."
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Qualité évaluée</label>
-                <input
-                  type="text"
-                  value={formData.quality_evaluated}
-                  onChange={(e) => setFormData(prev => ({ ...prev, quality_evaluated: e.target.value }))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Ex: Force des jambes, Endurance cardio-respiratoire..."
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Matériel nécessaire</label>
-                {formData.material.length === 0 ? (
-                  <button
-                    type="button"
-                    onClick={addMaterialItem}
-                    className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-gray-400 hover:text-gray-600 transition-colors flex items-center justify-center space-x-2"
-                  >
-                    <Plus size={16} />
-                    <span>Ajouter du matériel</span>
-                  </button>
-                ) : (
-                  <>
-                    {formData.material.map((item, index) => (
-                      <div key={`material-${index}`} className="flex items-center space-x-2 mb-2">
-                        <input
-                          type="text"
-                          value={item}
-                          onChange={(e) => updateMaterialItem(index, e.target.value)}
-                          className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Ex: Chronomètre, Tapis..."
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeMaterialItem(index)}
-                          className="text-red-500 hover:text-red-700 transition-colors"
-                        >
-                          <X size={18} />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={addMaterialItem}
-                      className="text-blue-600 hover:text-blue-800 text-sm flex items-center space-x-1 transition-colors"
-                    >
-                      <Plus size={16} />
-                      <span>Ajouter du matériel</span>
-                    </button>
-                  </>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Évaluation</label>
-                  <textarea
-                    value={formData.evaluation}
-                    onChange={(e) => setFormData(prev => ({ ...prev, evaluation: e.target.value }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    rows={3}
-                    placeholder="Comment évaluer le résultat"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Validation</label>
-                  <textarea
-                    value={formData.validation}
-                    onChange={(e) => setFormData(prev => ({ ...prev, validation: e.target.value }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    rows={3}
-                    placeholder="Critères de validation du test"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Consignes de réalisation</label>
-                <textarea
-                  value={formData.full_description}
-                  onChange={(e) => setFormData(prev => ({ ...prev, full_description: e.target.value }))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  rows={4}
-                  placeholder="Description détaillée du protocole"
-                />
-              </div>
-            </div>
-            
-            <div className="p-6 border-t border-gray-200 flex justify-end space-x-4">
-              <button
-                type="button"
-                onClick={closeModal}
-                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving || !formData.name.trim() || !formData.description.trim()}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
-              >
-                {saving ? (
-                  <>
-                    <Loader className="animate-spin" size={18} />
-                    <span>{editingTest ? 'Modification...' : 'Création...'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Save size={18} />
-                    <span>{editingTest ? 'Modifier le test' : 'Créer le test'}</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Footer Note */}
-      <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
-        <div className="flex items-center space-x-2">
-          <CheckCircle className="text-green-600" size={16} />
-          <p className="text-sm text-green-700">
-            <strong>Instance Supabase centralisée :</strong> Ce composant utilise maintenant l'instance unique de Supabase. 
-            Plus d'erreurs "Multiple GoTrueClient instances" !
-          </p>
-        </div>
-      </div>
-    </div>
-  );
+  if (!selectedClass) return <ClassSelectionView />;
+  if (!selectedStudent) return <StudentSelectionView />;
+  return <StudentFitnessCardView />;
 };
 
-export default TestManagementSupabase;
+export default IndividualFitnessCard;
