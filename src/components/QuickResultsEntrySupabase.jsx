@@ -1,4 +1,4 @@
-// src/components/QuickResultsEntrySupabase.jsx - VERSION CORRIGÉE AVEC SAISIE FLUIDE
+// QuickResultsEntrySupabase.jsx - VERSION AVEC DISPENSÉ/ABSENT
 import React, { useState, useEffect } from 'react';
 import { 
   Users, 
@@ -19,7 +19,9 @@ import {
   ClipboardList,
   BarChart3,
   Calendar,
-  GraduationCap
+  GraduationCap,
+  UserX,
+  Ban
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
@@ -61,10 +63,10 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
   const [studentsCount, setStudentsCount] = useState({});
   const [mode, setMode] = useState('class-selection');
   
-  // États pour la saisie - SYSTÈME CORRIGÉ AVEC ÉDITION ISOLÉE
-  const [editingCell, setEditingCell] = useState(null); // {studentId: X}
-  const [editValue, setEditValue] = useState(''); // Valeur temporaire pendant l'édition
-  const [inputValues, setInputValues] = useState({}); // Valeurs sauvegardées
+  // États pour la saisie avec support DISP/ABS
+  const [editingCell, setEditingCell] = useState(null);
+  const [editValue, setEditValue] = useState('');
+  const [inputValues, setInputValues] = useState({}); // Valeurs saisies {studentId: "12.5" | "DISP" | "ABS"}
   const [savingProgress, setSavingProgress] = useState(0);
   
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -72,7 +74,15 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
   const [passwordError, setPasswordError] = useState('');
   const [pendingYear, setPendingYear] = useState(null);
 
-  // Navigation au clavier améliorée
+  // Déterminer le type de valeur
+  const getValueType = (value) => {
+    if (!value) return 'empty';
+    if (value === 'DISP' || value === 'dispensé') return 'dispensed';
+    if (value === 'ABS' || value === 'absent') return 'absent';
+    return 'numeric';
+  };
+
+  // Navigation clavier
   const handleKeyDown = (e, currentIndex, filteredStudents) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -86,21 +96,17 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     }
   };
 
-  // Sauvegarde de l'édition en cours et passage au suivant
   const saveCurrentEdit = (currentIndex, filteredStudents) => {
     if (editingCell && editValue.trim() !== '') {
-      // Sauvegarder la valeur
       setInputValues(prev => ({
         ...prev,
         [editingCell.studentId]: editValue
       }));
     }
     
-    // Fermer l'édition
     setEditingCell(null);
     setEditValue('');
     
-    // Passer au suivant
     const nextIndex = currentIndex + 1;
     if (nextIndex < filteredStudents.length) {
       setTimeout(() => {
@@ -110,17 +116,39 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
     }
   };
 
-  // Annuler l'édition
   const cancelEdit = () => {
     setEditingCell(null);
     setEditValue('');
   };
 
-  // Démarrer l'édition d'une cellule
   const startEdit = (studentId) => {
     const currentValue = inputValues[studentId] || '';
+    const valueType = getValueType(currentValue);
+    
+    // Si c'est DISP ou ABS, on ne permet pas l'édition directe
+    if (valueType === 'dispensed' || valueType === 'absent') {
+      return;
+    }
+    
     setEditingCell({ studentId });
     setEditValue(currentValue);
+  };
+
+  // Fonction pour définir une valeur spéciale (DISP/ABS)
+  const setSpecialValue = (studentId, value) => {
+    setInputValues(prev => ({
+      ...prev,
+      [studentId]: value
+    }));
+  };
+
+  // Fonction pour effacer une valeur
+  const clearValue = (studentId) => {
+    setInputValues(prev => {
+      const newValues = { ...prev };
+      delete newValues[studentId];
+      return newValues;
+    });
   };
 
   useEffect(() => {
@@ -380,22 +408,19 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
       Object.keys(inputValues).forEach(studentId => {
         const value = inputValues[studentId];
         if (value && value.trim() !== '') {
-          const numericValue = parseFloat(value.trim());
-          if (!isNaN(numericValue)) {
-            resultsToSave.push({
-              student_id: parseInt(studentId),
-              test_id: selectedTest.id,
-              value: numericValue,
-              unit: selectedTest.unit,
-              school_year: selectedYear,
-              date_recorded: new Date().toISOString()
-            });
-          }
+          resultsToSave.push({
+            student_id: parseInt(studentId),
+            test_id: selectedTest.id,
+            value: value, // Peut être numérique, "DISP", ou "ABS"
+            unit: selectedTest.unit,
+            school_year: selectedYear,
+            date_recorded: new Date().toISOString()
+          });
         }
       });
 
       if (resultsToSave.length === 0) {
-        alert('Aucun résultat valide à sauvegarder');
+        alert('Aucun résultat à sauvegarder');
         return;
       }
 
@@ -841,38 +866,42 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
             </div>
           </div>
 
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center justify-center space-x-6 text-sm text-green-700">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center justify-center space-x-8 text-sm text-blue-700">
               <div className="flex items-center space-x-2">
                 <CheckCircle size={16} />
-                <span><strong>Saisie corrigée</strong> - Édition isolée pour fluidité</span>
+                <span><strong>Nouvelle version</strong> - Gestion Dispensé/Absent</span>
               </div>
               <div className="flex items-center space-x-2">
-                <kbd className="px-2 py-1 bg-green-200 rounded text-xs">Entrée</kbd>
-                <span>Suivant</span>
+                <div className="px-2 py-1 bg-amber-500 text-white rounded text-xs font-medium">DISP</div>
+                <span>Dispensé</span>
               </div>
               <div className="flex items-center space-x-2">
-                <kbd className="px-2 py-1 bg-green-200 rounded text-xs">Esc</kbd>
-                <span>Annuler</span>
+                <div className="px-2 py-1 bg-gray-500 text-white rounded text-xs font-medium">ABS</div>
+                <span>Absent</span>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredStudents.map((student, index) => {
+              const currentValue = inputValues[student.id] || '';
+              const valueType = getValueType(currentValue);
               const isEditing = editingCell?.studentId === student.id;
-              const savedValue = inputValues[student.id] || '';
-              const displayValue = isEditing ? editValue : savedValue;
-              const hasValue = savedValue && savedValue.toString().trim() !== '';
+              const displayValue = isEditing ? editValue : currentValue;
               const hasExisting = results[student.id];
               
               return (
                 <div
                   key={student.id}
                   className={`bg-white rounded-lg border-2 p-4 transition-all duration-200 ${
-                    isEditing
+                    valueType === 'dispensed'
+                      ? 'border-amber-400 bg-amber-50'
+                      : valueType === 'absent'
+                      ? 'border-gray-400 bg-gray-50'
+                      : isEditing
                       ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-300'
-                      : hasValue 
+                      : valueType === 'numeric' && currentValue
                       ? 'border-green-300 bg-green-50' 
                       : hasExisting 
                       ? 'border-blue-300 bg-blue-50'
@@ -883,7 +912,13 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-sm font-bold text-gray-600">
                       {index + 1}
                     </div>
-                    {hasValue && !isEditing && (
+                    {valueType === 'dispensed' && (
+                      <Ban className="text-amber-500" size={20} />
+                    )}
+                    {valueType === 'absent' && (
+                      <UserX className="text-gray-500" size={20} />
+                    )}
+                    {valueType === 'numeric' && currentValue && !isEditing && (
                       <CheckCircle className="text-green-500" size={20} />
                     )}
                   </div>
@@ -900,7 +935,7 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     </div>
                   </div>
 
-                  {hasExisting && !hasValue && !isEditing && (
+                  {hasExisting && !currentValue && !isEditing && (
                     <div className="text-center mb-3">
                       <div className="text-xs text-gray-500 mb-1">Résultat actuel</div>
                       <div className="text-sm font-medium text-blue-600">
@@ -909,41 +944,83 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
                     </div>
                   )}
 
-                  <div className="space-y-2">
-                    {isEditing ? (
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onKeyDown={(e) => handleKeyDown(e, index, filteredStudents)}
-                        onBlur={() => {
-                          if (editValue.trim() !== '') {
-                            setInputValues(prev => ({
-                              ...prev,
-                              [student.id]: editValue
-                            }));
-                          }
-                          setEditingCell(null);
-                          setEditValue('');
-                        }}
-                        placeholder={`Résultat en ${selectedTest.unit}`}
-                        className="w-full p-2 border-2 border-blue-500 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center text-sm"
-                        autoFocus
-                      />
-                    ) : (
-                      <input
-                        type="text"
-                        value={displayValue}
-                        onFocus={() => startEdit(student.id)}
-                        placeholder={`Résultat en ${selectedTest.unit}`}
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center text-sm cursor-pointer"
-                        readOnly
-                      />
-                    )}
-                    <div className="text-center text-xs text-gray-500">
-                      {selectedTest.unit}
+                  {valueType === 'dispensed' && (
+                    <div className="text-center mb-3">
+                      <div className="inline-block px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-sm font-medium">
+                        Dispensé
+                      </div>
                     </div>
+                  )}
+
+                  {valueType === 'absent' && (
+                    <div className="text-center mb-3">
+                      <div className="inline-block px-3 py-1 bg-gray-200 text-gray-700 rounded-full text-sm font-medium">
+                        Absent
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    {valueType === 'dispensed' || valueType === 'absent' ? (
+                      <button
+                        onClick={() => clearValue(student.id)}
+                        className="w-full p-2 bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors text-sm font-medium"
+                      >
+                        Effacer
+                      </button>
+                    ) : (
+                      <>
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={(e) => handleKeyDown(e, index, filteredStudents)}
+                            onBlur={() => {
+                              if (editValue.trim() !== '') {
+                                setInputValues(prev => ({
+                                  ...prev,
+                                  [student.id]: editValue
+                                }));
+                              }
+                              setEditingCell(null);
+                              setEditValue('');
+                            }}
+                            placeholder={`Résultat en ${selectedTest.unit}`}
+                            className="w-full p-2 border-2 border-blue-500 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center text-sm"
+                            autoFocus
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            value={displayValue}
+                            onFocus={() => startEdit(student.id)}
+                            placeholder={`Résultat en ${selectedTest.unit}`}
+                            className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-center text-sm cursor-pointer"
+                            readOnly
+                          />
+                        )}
+                        <div className="text-center text-xs text-gray-500 mb-2">
+                          {selectedTest.unit}
+                        </div>
+                        
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => setSpecialValue(student.id, 'DISP')}
+                            className="flex-1 px-2 py-1 bg-amber-500 text-white rounded hover:bg-amber-600 transition-colors text-xs font-medium"
+                          >
+                            DISP
+                          </button>
+                          <button
+                            onClick={() => setSpecialValue(student.id, 'ABS')}
+                            className="flex-1 px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors text-xs font-medium"
+                          >
+                            ABS
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -1051,9 +1128,9 @@ const QuickResultsEntrySupabase = ({ setActiveTab }) => {
               <div className="flex items-center space-x-3">
                 <CheckCircle size={28} className="text-green-600" />
                 <div>
-                  <h1 className="text-xl font-bold text-gray-800">Mode Atelier - Saisie Rapide (Corrigée)</h1>
+                  <h1 className="text-xl font-bold text-gray-800">Mode Atelier - Saisie avec DISP/ABS</h1>
                   <p className="text-sm text-gray-600">
-                    Saisie fluide optimisée • Année {selectedYear}
+                    Saisie améliorée avec gestion Dispensé/Absent • Année {selectedYear}
                   </p>
                 </div>
               </div>

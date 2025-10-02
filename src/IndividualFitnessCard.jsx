@@ -1,4 +1,4 @@
-// IndividualFitnessCard.jsx - VERSION AVEC NOTATION DÉTERMINISTE
+// IndividualFitnessCard.jsx - VERSION AVEC GESTION DES DISPENSES
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
@@ -43,7 +43,7 @@ const IndividualFitnessCard = () => {
   const [studentResults, setStudentResults] = useState(null);
   const [studentsCount, setStudentsCount] = useState({});
   
-  // NOUVEAUX ÉTATS POUR LE CHARGEMENT DYNAMIQUE
+  // États pour le chargement dynamique
   const [allTests, setAllTests] = useState([]);
   const [categories, setCategories] = useState({});
   const [testsLoading, setTestsLoading] = useState(true);
@@ -52,7 +52,6 @@ const IndividualFitnessCard = () => {
   // SYSTÈME DE NOTATION DYNAMIQUE DÉTERMINISTE
   // ============================================================================
 
-  // Fonction pour calculer les percentiles à partir des données réelles
   const calculatePercentiles = (values) => {
     const sorted = values.sort((a, b) => a - b);
     const n = sorted.length;
@@ -66,7 +65,6 @@ const IndividualFitnessCard = () => {
     };
   };
 
-  // Fonction CORRIGÉE pour déterminer la direction du test
   const getTestDirection = (testName) => {
     const timeBasedTests = ['SPRINTS 10 x 5', '30 mètres','FLAMINGO'];
     const speedBasedTests = ['36"-24"', 'VITESSE'];
@@ -83,7 +81,6 @@ const IndividualFitnessCard = () => {
     return true;
   };
 
-  // Fonction pour récupérer les données réelles d'un test spécifique
   const getTestData = async (testName, studentLevel, studentGender) => {
     try {
       const { data: results, error } = await supabase
@@ -112,7 +109,12 @@ const IndividualFitnessCard = () => {
         };
       }
 
-      const values = results.map(r => parseFloat(r.value)).filter(v => !isNaN(v));
+      // Filtrer les valeurs "DISP" et "dispensé" avant l'analyse
+      const values = results
+        .map(r => r.value)
+        .filter(v => v !== 'DISP' && v !== 'dispensé')
+        .map(v => parseFloat(v))
+        .filter(v => !isNaN(v));
       
       if (values.length < 5) {
         return {
@@ -137,7 +139,7 @@ const IndividualFitnessCard = () => {
         bestPerformance,
         higherIsBetter,
         insufficientData: false,
-        allValues: values // Nécessaire pour le calcul déterministe
+        allValues: values
       };
 
     } catch (error) {
@@ -146,71 +148,58 @@ const IndividualFitnessCard = () => {
     }
   };
 
-  // FONCTION DE CALCUL DÉTERMINISTE DU SCORE
   const calculateDeterministicScore = (value, percentiles, higherIsBetter, min, max) => {
     const numericValue = parseFloat(value);
     
     if (higherIsBetter) {
-      // Plus la valeur est haute, meilleur c'est
       if (numericValue >= percentiles.p90) {
-        // Excellent : 85-100
         const range = max - percentiles.p90;
         if (range === 0) return 100;
         const position = (numericValue - percentiles.p90) / range;
         return Math.round(85 + position * 15);
       } else if (numericValue >= percentiles.p75) {
-        // Bon : 70-84
         const range = percentiles.p90 - percentiles.p75;
         if (range === 0) return 77;
         const position = (numericValue - percentiles.p75) / range;
         return Math.round(70 + position * 14);
       } else if (numericValue >= percentiles.p50) {
-        // Correct : 55-69
         const range = percentiles.p75 - percentiles.p50;
         if (range === 0) return 62;
         const position = (numericValue - percentiles.p50) / range;
         return Math.round(55 + position * 14);
       } else if (numericValue >= percentiles.p25) {
-        // Faible : 40-54
         const range = percentiles.p50 - percentiles.p25;
         if (range === 0) return 47;
         const position = (numericValue - percentiles.p25) / range;
         return Math.round(40 + position * 14);
       } else {
-        // Très faible : 10-39
         const range = percentiles.p25 - min;
         if (range === 0) return 25;
         const position = Math.max(0, (numericValue - min) / range);
         return Math.round(10 + position * 29);
       }
     } else {
-      // Plus la valeur est basse, meilleur c'est (temps, etc.)
       if (numericValue <= percentiles.p10) {
-        // Excellent : 85-100
         const range = percentiles.p10 - min;
         if (range === 0) return 100;
         const position = (percentiles.p10 - numericValue) / range;
         return Math.round(85 + position * 15);
       } else if (numericValue <= percentiles.p25) {
-        // Bon : 70-84
         const range = percentiles.p25 - percentiles.p10;
         if (range === 0) return 77;
         const position = (percentiles.p25 - numericValue) / range;
         return Math.round(70 + position * 14);
       } else if (numericValue <= percentiles.p50) {
-        // Correct : 55-69
         const range = percentiles.p50 - percentiles.p25;
         if (range === 0) return 62;
         const position = (percentiles.p50 - numericValue) / range;
         return Math.round(55 + position * 14);
       } else if (numericValue <= percentiles.p75) {
-        // Faible : 40-54
         const range = percentiles.p75 - percentiles.p50;
         if (range === 0) return 47;
         const position = (percentiles.p75 - numericValue) / range;
         return Math.round(40 + position * 14);
       } else {
-        // Très faible : 10-39
         const range = max - percentiles.p75;
         if (range === 0) return 25;
         const position = Math.max(0, (max - numericValue) / range);
@@ -219,7 +208,6 @@ const IndividualFitnessCard = () => {
     }
   };
 
-  // Fonction pour déterminer la position percentile d'une valeur
   const getPercentilePosition = (value, percentiles, higherIsBetter) => {
     if (higherIsBetter) {
       if (value >= percentiles.p90) return "90e percentile et plus";
@@ -236,7 +224,6 @@ const IndividualFitnessCard = () => {
     }
   };
 
-  // Fonction de notation avec barèmes dynamiques DÉTERMINISTE
   const scoreTestWithDynamicBareme = async (value, testName, studentLevel, studentGender) => {
     const testData = await getTestData(testName, studentLevel, studentGender);
     
@@ -262,10 +249,8 @@ const IndividualFitnessCard = () => {
 
     const { percentiles, higherIsBetter, bestPerformance, min, max } = testData;
     
-    // Calcul DÉTERMINISTE du score (plus d'aléatoire !)
     const score = calculateDeterministicScore(numericValue, percentiles, higherIsBetter, min, max);
     
-    // Détermination du niveau basé sur le score
     let level;
     if (score >= 85) level = "Excellent";
     else if (score >= 70) level = "Bon";
@@ -284,7 +269,7 @@ const IndividualFitnessCard = () => {
     };
   };
 
-  // Fonction pour le calcul des scores de catégorie avec barèmes dynamiques
+  // FONCTION CORRIGÉE : Calcul des scores de catégorie SANS les dispenses
   const calculateCategoryScoreWithDynamicBaremes = async (tests, studentLevel, studentGender) => {
     if (tests.length === 0) return { score: 0, details: [], hasInsufficientData: false };
 
@@ -294,12 +279,26 @@ const IndividualFitnessCard = () => {
     const details = [];
 
     for (const test of tests) {
-      const result = await scoreTestWithDynamicBareme(
-        test.value, 
-        test.name, 
-        studentLevel, 
-        studentGender
-      );
+      // Vérifier si le test est dispensé
+      const isDispensed = test.value === 'DISP' || test.value === 'dispensé';
+      
+      let result;
+      if (isDispensed) {
+        // Pour les dispensés, on crée un résultat spécial sans score
+        result = {
+          score: null,
+          message: "Dispensé",
+          method: "dispense"
+        };
+      } else {
+        // Calcul normal pour les tests non-dispensés
+        result = await scoreTestWithDynamicBareme(
+          test.value, 
+          test.name, 
+          studentLevel, 
+          studentGender
+        );
+      }
       
       details.push({
         testName: test.name,
@@ -308,10 +307,11 @@ const IndividualFitnessCard = () => {
         result
       });
 
-      if (result.score !== null && result.method !== "echantillon_insuffisant") {
+      // On ne compte que les tests non-dispensés avec un score valide
+      if (!isDispensed && result.score !== null && result.method !== "echantillon_insuffisant") {
         totalScore += result.score;
         validTests++;
-      } else if (result.method === "echantillon_insuffisant") {
+      } else if (!isDispensed && result.method === "echantillon_insuffisant") {
         hasInsufficientData = true;
       }
     }
@@ -377,7 +377,6 @@ const IndividualFitnessCard = () => {
     }
   };
 
-  // Fonction pour charger tous les tests depuis la base de données
   const loadAllTests = async () => {
     try {
       setTestsLoading(true);
@@ -591,7 +590,7 @@ const IndividualFitnessCard = () => {
     return shortAdvice[category]?.[level] || "Continue tes efforts !";
   };
 
-  // Fonction pour générer le HTML optimisé A4 avec design interface web
+  // Fonction pour générer le HTML optimisé A4 avec gestion des dispenses
   const generateOptimizedHTML = (student, results, globalScore) => {
     const currentDate = new Date().toLocaleDateString('fr-FR', {
       day: '2-digit',
@@ -610,7 +609,6 @@ const IndividualFitnessCard = () => {
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Arial', sans-serif; font-size: 10px; line-height: 1.3; color: #333; background: #f9fafb; }
         
-        /* Header compact */
         .header { background: white; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .student-info h1 { font-size: 20px; color: #1f2937; margin-bottom: 4px; }
         .student-details { font-size: 9px; color: #6b7280; }
@@ -618,10 +616,8 @@ const IndividualFitnessCard = () => {
         .global-score-badge .score { font-size: 24px; font-weight: bold; }
         .global-score-badge .label { font-size: 8px; opacity: 0.9; text-transform: uppercase; }
         
-        /* Grille 2x3 des catégories */
         .categories-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
         
-        /* Cartes catégories colorées */
         .category-card { border-radius: 8px; padding: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); page-break-inside: avoid; }
         .category-card.endurance { background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); border-left: 4px solid #3b82f6; }
         .category-card.force { background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); border-left: 4px solid #ef4444; }
@@ -630,7 +626,6 @@ const IndividualFitnessCard = () => {
         .category-card.equilibre { background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); border-left: 4px solid #6366f1; }
         .category-card.souplesse { background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); border-left: 4px solid #22c55e; }
         
-        /* En-tête catégorie */
         .category-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .category-title-section { display: flex; align-items: center; gap: 8px; }
         .category-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; }
@@ -644,30 +639,26 @@ const IndividualFitnessCard = () => {
         .category-info h3 { font-size: 12px; font-weight: bold; color: #1f2937; margin-bottom: 2px; }
         .category-info p { font-size: 8px; color: #6b7280; }
         
-        /* Jauge circulaire SVG */
         .circular-gauge { position: relative; width: 60px; height: 60px; display: inline-block; }
         .gauge-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; width: 100%; }
         .gauge-score { font-size: 16px; font-weight: bold; display: block; line-height: 1; }
         .gauge-label { font-size: 7px; color: #6b7280; display: block; }
         
-        /* Liste des tests */
         .tests-list { margin-bottom: 8px; }
         .test-row { margin-bottom: 6px; }
         .test-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
         .test-name { font-size: 9px; font-weight: 500; color: #374151; }
         .test-value { font-size: 9px; color: #1f2937; font-weight: 600; }
+        .test-value.dispensed { color: #f59e0b; font-style: italic; }
         
-        /* Barre de progression */
         .progress-bar { width: 100%; height: 6px; background: rgba(0,0,0,0.1); border-radius: 3px; overflow: hidden; }
         .progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
         
-        /* Conseil personnalisé */
         .advice-box { background: rgba(255,255,255,0.7); border-radius: 6px; padding: 8px; display: flex; gap: 6px; align-items: start; }
         .advice-icon { width: 16px; height: 16px; border-radius: 50%; background: rgba(59,130,246,0.2); display: flex; align-items: center; justify-content: center; font-size: 10px; color: #3b82f6; flex-shrink: 0; }
         .advice-content h4 { font-size: 8px; font-weight: bold; color: #1f2937; margin-bottom: 2px; }
         .advice-content p { font-size: 8px; color: #4b5563; line-height: 1.4; }
         
-        /* Footer */
         .footer { background: white; border-radius: 8px; padding: 10px; margin-top: 10px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); page-break-inside: avoid; }
         .footer h3 { font-size: 11px; font-weight: bold; color: #1f2937; margin-bottom: 4px; }
         .footer p { font-size: 9px; color: #6b7280; line-height: 1.4; }
@@ -675,7 +666,6 @@ const IndividualFitnessCard = () => {
     </style>
 </head>
 <body>
-    <!-- Header -->
     <div class="header">
         <div class="student-info">
             <h1>${student.first_name} ${student.last_name}</h1>
@@ -690,7 +680,6 @@ const IndividualFitnessCard = () => {
         </div>
     </div>
     
-    <!-- Grille des catégories -->
     <div class="categories-grid">
         ${Object.entries(categories).map(([key, category]) => {
           const result = results?.[key] || { 
@@ -709,7 +698,6 @@ const IndividualFitnessCard = () => {
           
           return `
           <div class="category-card ${categoryClass}">
-            <!-- En-tête avec icône et jauge -->
             <div class="category-header">
               <div class="category-title-section">
                 <div class="category-icon">${category.shortName}</div>
@@ -719,7 +707,6 @@ const IndividualFitnessCard = () => {
                 </div>
               </div>
               
-              <!-- Jauge circulaire SVG -->
               <div class="circular-gauge">
                 <svg width="60" height="60" viewBox="0 0 60 60">
                   <circle cx="30" cy="30" r="22" fill="none" stroke="#e5e7eb" stroke-width="6"/>
@@ -738,24 +725,30 @@ const IndividualFitnessCard = () => {
               </div>
             </div>
             
-            <!-- Tests avec barres -->
             <div class="tests-list">
               ${category.tests?.slice(0, 4).map(test => {
                 const testDetail = result.details?.find(d => d.testName === test.name);
                 const hasResult = !!testDetail;
+                const isDispensed = hasResult && (testDetail.value === 'DISP' || testDetail.value === 'dispensé');
+                
                 let testScore = 0;
                 
-                if (hasResult && testDetail.result && testDetail.result.method !== "echantillon_insuffisant") {
-                  testScore = testDetail.result.score || 0;
+                if (hasResult && testDetail.result && !isDispensed) {
+                  if (testDetail.result.method !== "echantillon_insuffisant") {
+                    testScore = testDetail.result.score || 0;
+                  }
                 }
                 
                 const testColor = hasResult && testScore > 0 ? getEvaluationColor(testScore) : "#d1d5db";
+                const displayValue = hasResult ? 
+                  (isDispensed ? 'Dispensé' : `${testDetail.value} ${testDetail.unit}`) : 
+                  '-';
                 
                 return `
                 <div class="test-row">
                   <div class="test-header">
                     <span class="test-name">${test.shortName}</span>
-                    <span class="test-value">${hasResult ? `${testDetail.value} ${testDetail.unit}` : '-'}</span>
+                    <span class="test-value ${isDispensed ? 'dispensed' : ''}">${displayValue}</span>
                   </div>
                   <div class="progress-bar">
                     <div style="height: 100%; width: ${testScore}%; background: ${testColor}; border-radius: 3px;"></div>
@@ -765,7 +758,6 @@ const IndividualFitnessCard = () => {
               }).join('') || '<div class="test-row"><span class="test-name">Aucun test</span></div>'}
             </div>
             
-            <!-- Conseil -->
             <div class="advice-box">
               <div class="advice-icon">i</div>
               <div class="advice-content">
@@ -778,7 +770,6 @@ const IndividualFitnessCard = () => {
         }).join('')}
     </div>
     
-    <!-- Footer -->
     <div class="footer">
         <h3>Recommandation pour ${student.first_name}</h3>
         <p>
@@ -799,7 +790,6 @@ const IndividualFitnessCard = () => {
     `;
   };
 
-  // Fonction d'export PDF pour un élève
   const exportToPDF = () => {
     if (!selectedStudent || !studentResults) {
       alert('Aucune donnée à exporter pour cet élève.');
@@ -827,7 +817,6 @@ const IndividualFitnessCard = () => {
     };
   };
 
-  // NOUVELLE FONCTION : Export de toutes les fiches d'une classe
   const exportAllClassPDFs = async () => {
     if (!students || students.length === 0) {
       alert('Aucun élève dans cette classe.');
@@ -892,38 +881,6 @@ const IndividualFitnessCard = () => {
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Arial', sans-serif; font-size: 9px; line-height: 1.2; color: #333; background: white; }
         .student-page { min-height: 100vh; position: relative; }
-        .header { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 2px solid #4F46E5; margin-bottom: 12px; }
-        .student-info h1 { font-size: 18px; color: #1f2937; margin-bottom: 2px; }
-        .student-details { font-size: 8px; color: #6b7280; }
-        .global-score { text-align: center; padding: 8px; background: #f8fafc; border-radius: 6px; min-width: 80px; }
-        .global-score .score { font-size: 24px; font-weight: bold; }
-        .global-score .label { font-size: 7px; color: #6b7280; text-transform: uppercase; }
-        .categories-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
-        .category-card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 8px; background: #fafafa; }
-        .category-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-        .category-title { font-size: 10px; font-weight: bold; color: #1f2937; }
-        .category-score { font-size: 16px; font-weight: bold; min-width: 40px; text-align: center; }
-        .category-level { font-size: 6px; color: #6b7280; text-align: right; }
-        .tests-list { margin-bottom: 6px; }
-        .test-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; padding: 2px 0; }
-        .test-name { font-size: 7px; color: #374151; flex: 1; }
-        .test-value { font-size: 7px; color: #1f2937; font-weight: 500; margin-left: 4px; }
-        .test-score-bar { width: 30px; height: 3px; background: #e5e7eb; border-radius: 2px; margin-left: 4px; position: relative; }
-        .test-score-fill { height: 100%; border-radius: 2px; }
-        .endurance { color: #3b82f6; }
-        .force { color: #ef4444; }
-        .vitesse { color: #eab308; }
-        .coordination { color: #a855f7; }
-        .equilibre { color: #6366f1; }
-        .souplesse { color: #22c55e; }
-        .advice-section { background: #f1f5f9; border-radius: 4px; padding: 4px; margin-top: 4px; }
-        .advice-title { font-size: 6px; font-weight: bold; color: #334155; margin-bottom: 2px; }
-        .advice-text { font-size: 6px; color: #475569; line-height: 1.3; }
-        .footer { margin-top: 10px; padding-top: 6px; border-top: 1px solid #e5e7eb; text-align: center; page-break-inside: avoid; }
-        .footer-title { font-size: 10px; font-weight: bold; color: #1f2937; margin-bottom: 4px; }
-        .footer-text { font-size: 7px; color: #6b7280; line-height: 1.4; }
-        .footer-meta { font-size: 6px; color: #9ca3af; margin-top: 4px; }
-        .no-break { page-break-inside: avoid; }
         @media print { .no-print { display: none !important; } }
     </style>
 </head>
@@ -965,7 +922,6 @@ const IndividualFitnessCard = () => {
     }
   };
 
-  // Chargement des données
   useEffect(() => {
     if (selectedSchoolYear) {
       loadAllTests();
@@ -1049,6 +1005,7 @@ const IndividualFitnessCard = () => {
     }
   };
 
+  // FONCTION CORRIGÉE : Ne compte que les tests NON dispensés
   const processStudentResultsWithDynamicBaremes = async (results, student) => {
     const categoryScores = {};
     
@@ -1067,13 +1024,20 @@ const IndividualFitnessCard = () => {
 
     results.forEach(result => {
       const testCategory = result.tests.category;
+      const isDispensed = result.value === 'DISP' || result.value === 'dispensé';
+      
       if (categoryScores[testCategory]) {
+        // On ajoute tous les résultats (y compris dispensés) pour l'affichage
         categoryScores[testCategory].tests.push({
           name: result.tests.name,
           value: result.value,
           unit: result.tests.unit
         });
-        categoryScores[testCategory].testsCompleted++;
+        
+        // Mais on ne compte que les tests NON-dispensés pour le compteur
+        if (!isDispensed) {
+          categoryScores[testCategory].testsCompleted++;
+        }
       }
     });
 
@@ -1086,7 +1050,7 @@ const IndividualFitnessCard = () => {
         ? Math.round((testsCount / totalTests) * 100) 
         : 0;
 
-      if (testsCount > 0) {
+      if (testsCount > 0 || categoryData.tests.length > 0) {
         try {
           const studentLevel = student?.classes?.level;
           const studentGender = student?.gender;
@@ -1528,16 +1492,20 @@ const IndividualFitnessCard = () => {
                       {category.tests?.map((test, index) => {
                         const testDetail = result.details?.find(d => d.testName === test.name);
                         const hasResult = !!testDetail;
+                        const isDispensed = hasResult && (testDetail.value === 'DISP' || testDetail.value === 'dispensé');
                         
                         let testScore = 0;
                         
-                        if (hasResult && testDetail.result) {
+                        if (hasResult && testDetail.result && !isDispensed) {
                           if (testDetail.result.method !== "echantillon_insuffisant") {
                             testScore = testDetail.result.score || 0;
                           }
                         }
                         
                         const testEvaluationColor = hasResult && testScore > 0 ? getEvaluationColor(testScore) : "#d1d5db";
+                        const displayValue = hasResult ? 
+                          (isDispensed ? 'Dispensé' : `${testDetail.value} ${testDetail.unit}`) : 
+                          '-';
                         
                         return (
                           <div key={index} className="space-y-1">
@@ -1545,8 +1513,8 @@ const IndividualFitnessCard = () => {
                               <span className="text-xs font-medium text-gray-700">
                                 {test.shortName}
                               </span>
-                              <span className="text-xs text-gray-600">
-                                {hasResult ? `${testDetail.value} ${testDetail.unit}` : '-'}
+                              <span className={`text-xs ${isDispensed ? 'text-amber-600 italic' : 'text-gray-600'}`}>
+                                {displayValue}
                               </span>
                             </div>
                             
