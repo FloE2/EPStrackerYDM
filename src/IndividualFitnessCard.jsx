@@ -1,4 +1,4 @@
-// IndividualFitnessCard.jsx - VERSION AVEC GESTION DES DISPENSES
+// IndividualFitnessCard.jsx - VERSION AVEC GRAPHIQUE RADAR
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
@@ -26,6 +26,15 @@ import {
   Download,
   ArrowLeft
 } from 'lucide-react';
+import { 
+  RadarChart, 
+  PolarGrid, 
+  PolarAngleAxis, 
+  PolarRadiusAxis, 
+  Radar, 
+  ResponsiveContainer,
+  Tooltip
+} from "recharts";
 
 // Import de la configuration Supabase et du contexte année scolaire
 import { supabase } from './lib/supabase.js';
@@ -47,6 +56,9 @@ const IndividualFitnessCard = () => {
   const [allTests, setAllTests] = useState([]);
   const [categories, setCategories] = useState({});
   const [testsLoading, setTestsLoading] = useState(true);
+  
+  // État pour les statistiques du graphique radar
+  const [radarStatistics, setRadarStatistics] = useState(null);
 
   // ============================================================================
   // SYSTÈME DE NOTATION DYNAMIQUE DÉTERMINISTE
@@ -325,6 +337,82 @@ const IndividualFitnessCard = () => {
     };
   };
 
+  // NOUVELLE FONCTION : Calcul des statistiques pour le graphique radar
+  const calculateRadarStatistics = async (studentLevel, studentGender) => {
+    try {
+      // Récupérer tous les élèves du même niveau et sexe
+      const { data: studentsData, error: studentsError } = await supabase
+        .from('students')
+        .select(`
+          id,
+          classes!inner(level)
+        `)
+        .eq('school_year', selectedSchoolYear)
+        .eq('gender', studentGender)
+        .eq('classes.level', studentLevel);
+
+      if (studentsError || !studentsData || studentsData.length === 0) {
+        console.error('Erreur récupération élèves:', studentsError);
+        return null;
+      }
+
+      // Récupérer tous les résultats pour ces élèves
+      const studentIds = studentsData.map(s => s.id);
+      const { data: allResults, error: resultsError } = await supabase
+        .from('results')
+        .select(`
+          *,
+          tests!inner(name, category, unit),
+          students!inner(school_year)
+        `)
+        .in('student_id', studentIds)
+        .eq('students.school_year', selectedSchoolYear);
+
+      if (resultsError) {
+        console.error('Erreur récupération résultats:', resultsError);
+        return null;
+      }
+
+      // Calculer les scores par catégorie pour chaque élève
+      const categoryScoresByStudent = {};
+      
+      for (const student of studentsData) {
+        const studentResults = allResults.filter(r => r.student_id === student.id);
+        const processed = await processStudentResultsWithDynamicBaremes(
+          studentResults,
+          { classes: { level: studentLevel }, gender: studentGender }
+        );
+        
+        categoryScoresByStudent[student.id] = processed;
+      }
+
+      // Calculer moyenne et meilleur par catégorie
+      const statistics = {};
+      const categoryKeys = ['ENDURANCE', 'FORCE', 'VITESSE', 'COORDINATION', 'EQUILIBRE', 'SOUPLESSE'];
+      
+      for (const categoryKey of categoryKeys) {
+        const scores = Object.values(categoryScoresByStudent)
+          .map(results => results[categoryKey]?.score || 0)
+          .filter(score => score > 0);
+
+        if (scores.length > 0) {
+          const average = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+          const best = Math.round(Math.max(...scores));
+          
+          statistics[categoryKey] = { average, best };
+        } else {
+          statistics[categoryKey] = { average: 0, best: 0 };
+        }
+      }
+
+      return statistics;
+
+    } catch (error) {
+      console.error('Erreur calcul statistiques radar:', error);
+      return null;
+    }
+  };
+
   // Configuration de base des catégories
   const baseCategoryConfig = {
     ENDURANCE: {
@@ -375,6 +463,164 @@ const IndividualFitnessCard = () => {
       bgColor: "from-green-50 to-green-100",
       borderColor: "border-green-200"
     }
+  };
+
+  // Composant Tooltip personnalisé pour le graphique radar
+  const CustomRadarTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white border-2 border-gray-200 rounded-lg shadow-lg p-3">
+          <p className="font-bold text-gray-800 mb-2 text-sm">
+            {payload[0].payload.fullName}
+          </p>
+          {payload.map((entry, index) => (
+            <div key={index} className="flex items-center justify-between space-x-3 text-xs">
+              <span style={{ color: entry.stroke }} className="font-semibold">
+                {entry.name}:
+              </span>
+              <span className="font-bold text-gray-900">
+                {entry.value}/100
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Composant Graphique Radar
+  const CategoryRadarChart = ({ studentScores, statistics }) => {
+    if (!studentScores || !statistics) {
+      return (
+        <div className="flex items-center justify-center w-80 h-80 bg-gray-50 rounded-lg border-2 border-gray-200">
+          <div className="text-center">
+            <RefreshCw className="animate-spin mx-auto text-gray-400 mb-2" size={28} />
+            <p className="text-sm text-gray-600 font-medium">Calcul des statistiques...</p>
+          </div>
+        </div>
+      );
+    }
+
+    const categoryNames = {
+      ENDURANCE: 'Endurance',
+      FORCE: 'Force',
+      VITESSE: 'Vitesse',
+      COORDINATION: 'Coordination',
+      EQUILIBRE: 'Équilibre',
+      SOUPLESSE: 'Souplesse'
+    };
+
+    const data = [
+      {
+        category: 'END',
+        fullName: categoryNames.ENDURANCE,
+        Élève: studentScores.ENDURANCE || 0,
+        Moyenne: statistics.ENDURANCE?.average || 0,
+        Meilleur: statistics.ENDURANCE?.best || 0,
+      },
+      {
+        category: 'FOR',
+        fullName: categoryNames.FORCE,
+        Élève: studentScores.FORCE || 0,
+        Moyenne: statistics.FORCE?.average || 0,
+        Meilleur: statistics.FORCE?.best || 0,
+      },
+      {
+        category: 'VIT',
+        fullName: categoryNames.VITESSE,
+        Élève: studentScores.VITESSE || 0,
+        Moyenne: statistics.VITESSE?.average || 0,
+        Meilleur: statistics.VITESSE?.best || 0,
+      },
+      {
+        category: 'COO',
+        fullName: categoryNames.COORDINATION,
+        Élève: studentScores.COORDINATION || 0,
+        Moyenne: statistics.COORDINATION?.average || 0,
+        Meilleur: statistics.COORDINATION?.best || 0,
+      },
+      {
+        category: 'EQU',
+        fullName: categoryNames.EQUILIBRE,
+        Élève: studentScores.EQUILIBRE || 0,
+        Moyenne: statistics.EQUILIBRE?.average || 0,
+        Meilleur: statistics.EQUILIBRE?.best || 0,
+      },
+      {
+        category: 'SOU',
+        fullName: categoryNames.SOUPLESSE,
+        Élève: studentScores.SOUPLESSE || 0,
+        Moyenne: statistics.SOUPLESSE?.average || 0,
+        Meilleur: statistics.SOUPLESSE?.best || 0,
+      },
+    ];
+
+    return (
+      <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl p-3 border-2 border-purple-200 shadow-md">
+        <div className="text-center mb-2">
+          <p className="text-xs font-semibold text-purple-700">Comparaison des aptitudes</p>
+        </div>
+        <ResponsiveContainer width={320} height={320}>
+          <RadarChart data={data}>
+            <PolarGrid stroke="#d1d5db" strokeWidth={1} />
+            <PolarAngleAxis 
+              dataKey="category" 
+              tick={{ fill: '#4b5563', fontSize: 13, fontWeight: 700 }}
+            />
+            <PolarRadiusAxis 
+              angle={90} 
+              domain={[0, 100]} 
+              tick={{ fill: '#9ca3af', fontSize: 10 }}
+              tickCount={6}
+            />
+            <Radar 
+              name="Élève" 
+              dataKey="Élève" 
+              stroke="#8b5cf6" 
+              fill="#8b5cf6" 
+              fillOpacity={0.65}
+              strokeWidth={3}
+            />
+            <Radar 
+              name="Moyenne classe" 
+              dataKey="Moyenne" 
+              stroke="#3b82f6" 
+              fill="#3b82f6" 
+              fillOpacity={0.2}
+              strokeWidth={2}
+              strokeDasharray="5 5"
+            />
+            <Radar 
+              name="Meilleur" 
+              dataKey="Meilleur" 
+              stroke="#22c55e" 
+              fill="#22c55e" 
+              fillOpacity={0.15}
+              strokeWidth={2}
+              strokeDasharray="3 3"
+            />
+            <Tooltip content={<CustomRadarTooltip />} />
+          </RadarChart>
+        </ResponsiveContainer>
+        
+        {/* Légende manuelle en bas */}
+        <div className="flex justify-center space-x-4 text-xs mt-2 pb-1">
+          <div className="flex items-center space-x-1">
+            <div className="w-3 h-3 rounded-full bg-purple-600"></div>
+            <span className="text-gray-700 font-medium">Élève</span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <div className="w-3 h-1 bg-blue-500"></div>
+            <span className="text-gray-700 font-medium">Moyenne</span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <div className="w-3 h-1 bg-green-500"></div>
+            <span className="text-gray-700 font-medium">Meilleur</span>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const loadAllTests = async () => {
@@ -1103,6 +1349,15 @@ const IndividualFitnessCard = () => {
       );
       
       setStudentResults(processedResults);
+      
+      // Calculer les statistiques pour le graphique radar
+      if (student?.classes?.level && student?.gender) {
+        const stats = await calculateRadarStatistics(
+          student.classes.level,
+          student.gender
+        );
+        setRadarStatistics(stats);
+      }
   
     } catch (err) {
       console.error('Erreur lors du chargement des résultats:', err);
@@ -1389,6 +1644,16 @@ const IndividualFitnessCard = () => {
       );
     }
 
+    // Préparer les données pour le radar chart
+    const studentScores = studentResults ? {
+      ENDURANCE: studentResults.ENDURANCE?.score || 0,
+      FORCE: studentResults.FORCE?.score || 0,
+      VITESSE: studentResults.VITESSE?.score || 0,
+      COORDINATION: studentResults.COORDINATION?.score || 0,
+      EQUILIBRE: studentResults.EQUILIBRE?.score || 0,
+      SOUPLESSE: studentResults.SOUPLESSE?.score || 0
+    } : null;
+
     return (
       <div className="min-h-screen bg-gray-100">
         <div className="max-w-7xl mx-auto px-4 py-6">
@@ -1397,6 +1662,7 @@ const IndividualFitnessCard = () => {
               onClick={() => {
                 setSelectedStudent(null);
                 setStudentResults(null);
+                setRadarStatistics(null);
               }}
               className="flex items-center space-x-2 px-4 py-2 bg-white rounded-lg shadow-md hover:shadow-lg transition-all"
             >
@@ -1416,7 +1682,7 @@ const IndividualFitnessCard = () => {
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-6">
-                <div className={`w-20 h-20 bg-gradient-to-br ${colors.gradient} rounded-2xl flex items-center justify-center text-white`}>
+                <div className={`w-20 h-20 bg-gradient-to-br ${colors.gradient} rounded-2xl flex items-center justify-center text-white shadow-lg`}>
                   <User size={28} />
                 </div>
                 <div>
@@ -1432,12 +1698,30 @@ const IndividualFitnessCard = () => {
                   </div>
                 </div>
               </div>
-              <div className="text-center">
-                <div className="text-3xl font-bold mb-1" style={{ color: getScoreColor(globalScore) }}>
-                  {globalScore}/100
-                </div>
-                <div className="text-sm text-gray-600 uppercase tracking-wide">
-                  Score global
+              
+              {/* Section Graphique Radar + Score Global */}
+              <div className="flex items-center space-x-6">
+                {/* Graphique Radar */}
+                <CategoryRadarChart 
+                  studentScores={studentScores}
+                  statistics={radarStatistics}
+                />
+                
+                {/* Score Global */}
+                <div className="text-center border-l-2 border-gray-200 pl-8">
+                  <div className="text-5xl font-bold mb-2" style={{ color: getScoreColor(globalScore) }}>
+                    {globalScore}<span className="text-2xl">/100</span>
+                  </div>
+                  <div className="text-sm text-gray-600 uppercase tracking-wide font-semibold mb-1">
+                    Score global
+                  </div>
+                  <div className="mt-2 px-3 py-1 rounded-full text-xs font-bold" 
+                       style={{ 
+                         backgroundColor: getScoreColor(globalScore) + '20',
+                         color: getScoreColor(globalScore)
+                       }}>
+                    {getScoreLevel(globalScore)}
+                  </div>
                 </div>
               </div>
             </div>
