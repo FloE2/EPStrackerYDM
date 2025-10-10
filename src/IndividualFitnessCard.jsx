@@ -1,4 +1,4 @@
-// IndividualFitnessCard.jsx - VERSION AVEC GRAPHIQUE RADAR
+// IndividualFitnessCard.jsx - VERSION AVEC GRAPHIQUE RADAR OPTIMISÉ
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
@@ -337,74 +337,57 @@ const IndividualFitnessCard = () => {
     };
   };
 
-  // NOUVELLE FONCTION : Calcul des statistiques pour le graphique radar
+  // FONCTION OPTIMISÉE : Calcul rapide des statistiques pour le graphique radar
   const calculateRadarStatistics = async (studentLevel, studentGender) => {
     try {
-      // Récupérer tous les élèves du même niveau et sexe
-      const { data: studentsData, error: studentsError } = await supabase
-        .from('students')
-        .select(`
-          id,
-          classes!inner(level)
-        `)
-        .eq('school_year', selectedSchoolYear)
-        .eq('gender', studentGender)
-        .eq('classes.level', studentLevel);
-
-      if (studentsError || !studentsData || studentsData.length === 0) {
-        console.error('Erreur récupération élèves:', studentsError);
-        return null;
-      }
-
-      // Récupérer tous les résultats pour ces élèves
-      const studentIds = studentsData.map(s => s.id);
-      const { data: allResults, error: resultsError } = await supabase
-        .from('results')
-        .select(`
-          *,
-          tests!inner(name, category, unit),
-          students!inner(school_year)
-        `)
-        .in('student_id', studentIds)
-        .eq('students.school_year', selectedSchoolYear);
-
-      if (resultsError) {
-        console.error('Erreur récupération résultats:', resultsError);
-        return null;
-      }
-
-      // Calculer les scores par catégorie pour chaque élève
-      const categoryScoresByStudent = {};
-      
-      for (const student of studentsData) {
-        const studentResults = allResults.filter(r => r.student_id === student.id);
-        const processed = await processStudentResultsWithDynamicBaremes(
-          studentResults,
-          { classes: { level: studentLevel }, gender: studentGender }
-        );
-        
-        categoryScoresByStudent[student.id] = processed;
-      }
-
-      // Calculer moyenne et meilleur par catégorie
       const statistics = {};
-      const categoryKeys = ['ENDURANCE', 'FORCE', 'VITESSE', 'COORDINATION', 'EQUILIBRE', 'SOUPLESSE'];
       
-      for (const categoryKey of categoryKeys) {
-        const scores = Object.values(categoryScoresByStudent)
-          .map(results => results[categoryKey]?.score || 0)
-          .filter(score => score > 0);
-
-        if (scores.length > 0) {
-          const average = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-          const best = Math.round(Math.max(...scores));
-          
-          statistics[categoryKey] = { average, best };
-        } else {
+      for (const [categoryKey, category] of Object.entries(categories)) {
+        if (!category.tests || category.tests.length === 0) {
           statistics[categoryKey] = { average: 0, best: 0 };
+          continue;
         }
+        
+        let avgSum = 0;
+        let bestSum = 0;
+        let validTests = 0;
+        
+        // Pour chaque test de la catégorie, utiliser les percentiles
+        for (const test of category.tests) {
+          const testData = await getTestData(test.name, studentLevel, studentGender);
+          
+          if (testData && !testData.insufficientData && testData.percentiles) {
+            // Moyenne: score au percentile 50 (médiane)
+            const avgScore = calculateDeterministicScore(
+              testData.percentiles.p50,
+              testData.percentiles,
+              testData.higherIsBetter,
+              testData.min,
+              testData.max
+            );
+            
+            // Meilleur: score au percentile 90
+            const bestPercentile = testData.higherIsBetter ? testData.percentiles.p90 : testData.percentiles.p10;
+            const bestScore = calculateDeterministicScore(
+              bestPercentile,
+              testData.percentiles,
+              testData.higherIsBetter,
+              testData.min,
+              testData.max
+            );
+            
+            avgSum += avgScore;
+            bestSum += bestScore;
+            validTests++;
+          }
+        }
+        
+        statistics[categoryKey] = {
+          average: validTests > 0 ? Math.round(avgSum / validTests) : 0,
+          best: validTests > 0 ? Math.round(bestSum / validTests) : 0
+        };
       }
-
+      
       return statistics;
 
     } catch (error) {
@@ -489,14 +472,59 @@ const IndividualFitnessCard = () => {
     return null;
   };
 
+  // Composant personnalisé pour afficher les icônes sur les axes du radar
+  const CustomAxisTick = ({ payload, x, y }) => {
+    const iconMap = {
+      'ENDURANCE': Activity,
+      'FORCE': Target,
+      'VITESSE': Zap,
+      'COORDINATION': GitBranch,
+      'EQUILIBRE': Users,
+      'SOUPLESSE': Minimize2
+    };
+
+    const colorMap = {
+      'ENDURANCE': '#3b82f6',
+      'FORCE': '#ef4444',
+      'VITESSE': '#eab308',
+      'COORDINATION': '#a855f7',
+      'EQUILIBRE': '#6366f1',
+      'SOUPLESSE': '#22c55e'
+    };
+
+    const IconComponent = iconMap[payload.value];
+    const color = colorMap[payload.value];
+
+    if (!IconComponent) return null;
+
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <foreignObject x={-12} y={-12} width={24} height={24}>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            width: '24px',
+            height: '24px',
+            backgroundColor: color,
+            borderRadius: '6px',
+            padding: '3px'
+          }}>
+            <IconComponent size={16} color="white" strokeWidth={2.5} />
+          </div>
+        </foreignObject>
+      </g>
+    );
+  };
+
   // Composant Graphique Radar
   const CategoryRadarChart = ({ studentScores, statistics }) => {
     if (!studentScores || !statistics) {
       return (
-        <div className="flex items-center justify-center w-80 h-80 bg-gray-50 rounded-lg border-2 border-gray-200">
+        <div className="flex items-center justify-center w-80 h-40 bg-gray-50 rounded-lg border-2 border-gray-200">
           <div className="text-center">
-            <RefreshCw className="animate-spin mx-auto text-gray-400 mb-2" size={28} />
-            <p className="text-sm text-gray-600 font-medium">Calcul des statistiques...</p>
+            <RefreshCw className="animate-spin mx-auto text-gray-400 mb-2" size={24} />
+            <p className="text-xs text-gray-600 font-medium">Calcul des statistiques...</p>
           </div>
         </div>
       );
@@ -513,42 +541,42 @@ const IndividualFitnessCard = () => {
 
     const data = [
       {
-        category: 'END',
+        category: 'ENDURANCE',
         fullName: categoryNames.ENDURANCE,
         Élève: studentScores.ENDURANCE || 0,
         Moyenne: statistics.ENDURANCE?.average || 0,
         Meilleur: statistics.ENDURANCE?.best || 0,
       },
       {
-        category: 'FOR',
+        category: 'FORCE',
         fullName: categoryNames.FORCE,
         Élève: studentScores.FORCE || 0,
         Moyenne: statistics.FORCE?.average || 0,
         Meilleur: statistics.FORCE?.best || 0,
       },
       {
-        category: 'VIT',
+        category: 'VITESSE',
         fullName: categoryNames.VITESSE,
         Élève: studentScores.VITESSE || 0,
         Moyenne: statistics.VITESSE?.average || 0,
         Meilleur: statistics.VITESSE?.best || 0,
       },
       {
-        category: 'COO',
+        category: 'COORDINATION',
         fullName: categoryNames.COORDINATION,
         Élève: studentScores.COORDINATION || 0,
         Moyenne: statistics.COORDINATION?.average || 0,
         Meilleur: statistics.COORDINATION?.best || 0,
       },
       {
-        category: 'EQU',
+        category: 'EQUILIBRE',
         fullName: categoryNames.EQUILIBRE,
         Élève: studentScores.EQUILIBRE || 0,
         Moyenne: statistics.EQUILIBRE?.average || 0,
         Meilleur: statistics.EQUILIBRE?.best || 0,
       },
       {
-        category: 'SOU',
+        category: 'SOUPLESSE',
         fullName: categoryNames.SOUPLESSE,
         Élève: studentScores.SOUPLESSE || 0,
         Moyenne: statistics.SOUPLESSE?.average || 0,
@@ -557,21 +585,18 @@ const IndividualFitnessCard = () => {
     ];
 
     return (
-      <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl p-3 border-2 border-purple-200 shadow-md">
-        <div className="text-center mb-2">
-          <p className="text-xs font-semibold text-purple-700">Comparaison des aptitudes</p>
-        </div>
-        <ResponsiveContainer width={320} height={320}>
+      <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl p-2 border-2 border-purple-200 shadow-md">
+        <ResponsiveContainer width={320} height={160}>
           <RadarChart data={data}>
             <PolarGrid stroke="#d1d5db" strokeWidth={1} />
             <PolarAngleAxis 
               dataKey="category" 
-              tick={{ fill: '#4b5563', fontSize: 13, fontWeight: 700 }}
+              tick={<CustomAxisTick />}
             />
             <PolarRadiusAxis 
               angle={90} 
               domain={[0, 100]} 
-              tick={{ fill: '#9ca3af', fontSize: 10 }}
+              tick={{ fill: '#9ca3af', fontSize: 9 }}
               tickCount={6}
             />
             <Radar 
@@ -579,16 +604,16 @@ const IndividualFitnessCard = () => {
               dataKey="Élève" 
               stroke="#8b5cf6" 
               fill="#8b5cf6" 
-              fillOpacity={0.65}
-              strokeWidth={3}
+              fillOpacity={0.35}
+              strokeWidth={2}
             />
             <Radar 
               name="Moyenne classe" 
               dataKey="Moyenne" 
               stroke="#3b82f6" 
               fill="#3b82f6" 
-              fillOpacity={0.2}
-              strokeWidth={2}
+              fillOpacity={0.15}
+              strokeWidth={1.5}
               strokeDasharray="5 5"
             />
             <Radar 
@@ -596,8 +621,8 @@ const IndividualFitnessCard = () => {
               dataKey="Meilleur" 
               stroke="#22c55e" 
               fill="#22c55e" 
-              fillOpacity={0.15}
-              strokeWidth={2}
+              fillOpacity={0.1}
+              strokeWidth={1.5}
               strokeDasharray="3 3"
             />
             <Tooltip content={<CustomRadarTooltip />} />
@@ -605,17 +630,17 @@ const IndividualFitnessCard = () => {
         </ResponsiveContainer>
         
         {/* Légende manuelle en bas */}
-        <div className="flex justify-center space-x-4 text-xs mt-2 pb-1">
+        <div className="flex justify-center space-x-3 text-xs mt-1 pb-1">
           <div className="flex items-center space-x-1">
-            <div className="w-3 h-3 rounded-full bg-purple-600"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-purple-600"></div>
             <span className="text-gray-700 font-medium">Élève</span>
           </div>
           <div className="flex items-center space-x-1">
-            <div className="w-3 h-1 bg-blue-500"></div>
+            <div className="w-2.5 h-0.5 bg-blue-500"></div>
             <span className="text-gray-700 font-medium">Moyenne</span>
           </div>
           <div className="flex items-center space-x-1">
-            <div className="w-3 h-1 bg-green-500"></div>
+            <div className="w-2.5 h-0.5 bg-green-500"></div>
             <span className="text-gray-700 font-medium">Meilleur</span>
           </div>
         </div>
@@ -1682,19 +1707,34 @@ const IndividualFitnessCard = () => {
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-6">
-                <div className={`w-20 h-20 bg-gradient-to-br ${colors.gradient} rounded-2xl flex items-center justify-center text-white shadow-lg`}>
-                  <User size={28} />
+                {/* Badge avec niveau et classe */}
+                <div className={`w-20 h-20 bg-gradient-to-br ${colors.gradient} rounded-2xl flex flex-col items-center justify-center text-white shadow-lg`}>
+                  <span className="text-lg font-bold">{selectedStudent.classes.level}</span>
+                  <span className="text-lg font-bold">{selectedStudent.classes.name}</span>
                 </div>
+                
                 <div>
                   <h1 className="text-2xl font-bold text-gray-800 mb-2">
                     {selectedStudent.first_name} {selectedStudent.last_name}
                   </h1>
                   <div className="flex items-center space-x-4 text-gray-600">
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium bg-gradient-to-r ${colors.gradient} text-white`}>
-                      {selectedStudent.classes.name}
-                    </span>
-                    <span>{selectedStudent.classes.level}</span>
                     <span>{selectedStudent.gender === 'M' ? 'Garçon' : 'Fille'}</span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Section Photo de profil / Avatar */}
+              <div className="flex items-center justify-center">
+                <div className="relative group">
+                  <div className="w-32 h-32 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl border-4 border-white shadow-lg flex flex-col items-center justify-center transition-all duration-300 group-hover:shadow-xl">
+                    <User size={40} className="text-gray-400 mb-2" strokeWidth={1.5} />
+                    <span className="text-xs text-gray-500 font-medium text-center px-2">
+                      Photo de profil
+                    </span>
+                  </div>
+                  {/* Badge indicateur (optionnel pour plus tard) */}
+                  <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-blue-500 rounded-full border-4 border-white shadow-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-white text-xs font-bold">+</span>
                   </div>
                 </div>
               </div>
