@@ -1,4 +1,4 @@
-// IndividualFitnessCard.jsx - VERSION AVEC GRAPHIQUE RADAR OPTIMISÉ
+// IndividualFitnessCard.jsx - VERSION COMPLÈTE AVEC NAVIGATION ENTRE ÉLÈVES
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
@@ -59,6 +59,33 @@ const IndividualFitnessCard = () => {
   
   // État pour les statistiques du graphique radar
   const [radarStatistics, setRadarStatistics] = useState(null);
+
+  // ============================================================================
+  // FONCTIONS DE NAVIGATION ENTRE ÉLÈVES
+  // ============================================================================
+  
+  // Trouver l'index de l'élève actuel
+  const currentStudentIndex = students.findIndex(s => s.id === selectedStudent?.id);
+  const hasPrevious = currentStudentIndex > 0;
+  const hasNext = currentStudentIndex < students.length - 1;
+
+  // Fonction pour naviguer vers l'élève précédent
+  const goToPreviousStudent = () => {
+    if (hasPrevious) {
+      const previousStudent = students[currentStudentIndex - 1];
+      setSelectedStudent(previousStudent);
+      loadStudentResults(previousStudent.id, previousStudent);
+    }
+  };
+
+  // Fonction pour naviguer vers l'élève suivant
+  const goToNextStudent = () => {
+    if (hasNext) {
+      const nextStudent = students[currentStudentIndex + 1];
+      setSelectedStudent(nextStudent);
+      loadStudentResults(nextStudent.id, nextStudent);
+    }
+  };
 
   // ============================================================================
   // SYSTÈME DE NOTATION DYNAMIQUE DÉTERMINISTE
@@ -1682,18 +1709,56 @@ const IndividualFitnessCard = () => {
     return (
       <div className="min-h-screen bg-gray-100">
         <div className="max-w-7xl mx-auto px-4 py-6">
+          {/* Barre de navigation avec boutons Précédent/Suivant */}
           <div className="flex items-center justify-between mb-6">
-            <button
-              onClick={() => {
-                setSelectedStudent(null);
-                setStudentResults(null);
-                setRadarStatistics(null);
-              }}
-              className="flex items-center space-x-2 px-4 py-2 bg-white rounded-lg shadow-md hover:shadow-lg transition-all"
-            >
-              <ChevronLeft size={16} />
-              <span>Retour aux élèves</span>
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => {
+                  setSelectedStudent(null);
+                  setStudentResults(null);
+                  setRadarStatistics(null);
+                }}
+                className="flex items-center space-x-2 px-4 py-2 bg-white rounded-lg shadow-md hover:shadow-lg transition-all"
+              >
+                <ChevronLeft size={16} />
+                <span>Retour aux élèves</span>
+              </button>
+
+              {/* Bouton Élève Précédent */}
+              <button
+                onClick={goToPreviousStudent}
+                disabled={!hasPrevious}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg shadow-md transition-all ${
+                  hasPrevious
+                    ? 'bg-gray-600 text-white hover:bg-gray-700 hover:shadow-lg'
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
+              >
+                <ChevronLeft size={16} />
+                <span>Précédent</span>
+              </button>
+
+              {/* Indicateur de position */}
+              <div className="px-4 py-2 bg-white rounded-lg shadow-md">
+                <span className="text-sm text-gray-600 font-medium">
+                  Élève {currentStudentIndex + 1} / {students.length}
+                </span>
+              </div>
+
+              {/* Bouton Élève Suivant */}
+              <button
+                onClick={goToNextStudent}
+                disabled={!hasNext}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg shadow-md transition-all ${
+                  hasNext
+                    ? 'bg-gray-600 text-white hover:bg-gray-700 hover:shadow-lg'
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
+              >
+                <span>Suivant</span>
+                <ChevronRight size={16} />
+              </button>
+            </div>
 
             <button
               onClick={exportToPDF}
@@ -1704,6 +1769,18 @@ const IndividualFitnessCard = () => {
             </button>
           </div>
 
+          {/* Message d'information sur la navigation */}
+          <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg mb-6">
+            <div className="flex items-center">
+              <Info className="text-blue-600 mr-3" size={20} />
+              <p className="text-sm text-blue-800">
+                <strong>Navigation améliorée :</strong> Utilisez les boutons "Précédent" et "Suivant" 
+                pour naviguer rapidement entre tous les élèves de la classe sans revenir à la liste.
+              </p>
+            </div>
+          </div>
+
+          {/* En-tête de l'élève */}
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-6">
@@ -1731,10 +1808,6 @@ const IndividualFitnessCard = () => {
                     <span className="text-xs text-gray-500 font-medium text-center px-2">
                       Photo de profil
                     </span>
-                  </div>
-                  {/* Badge indicateur (optionnel pour plus tard) */}
-                  <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-blue-500 rounded-full border-4 border-white shadow-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-white text-xs font-bold">+</span>
                   </div>
                 </div>
               </div>
