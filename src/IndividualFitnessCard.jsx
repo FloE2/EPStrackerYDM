@@ -39,6 +39,7 @@ import {
 // Import de la configuration Supabase et du contexte année scolaire
 import { supabase } from './lib/supabase.js';
 import { useSchoolYear } from './contexts/SchoolYearContext.jsx';
+import StudentEvolutionPanel from './StudentEvolutionPanel.jsx';
 
 const IndividualFitnessCard = () => {
   const { selectedSchoolYear, currentSchoolYear } = useSchoolYear();
@@ -59,6 +60,7 @@ const IndividualFitnessCard = () => {
   
   // État pour les statistiques du graphique radar
   const [radarStatistics, setRadarStatistics] = useState(null);
+  const [showEvolution, setShowEvolution] = useState(false);
 
   // ============================================================================
   // SYSTÈME DE NOTATION DYNAMIQUE DÉTERMINISTE
@@ -1702,6 +1704,14 @@ const IndividualFitnessCard = () => {
               <Download size={16} />
               <span>Exporter en PDF</span>
             </button>
+
+            <button
+              onClick={() => setShowEvolution(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all shadow-md"
+            >
+              <TrendingUp size={16} />
+              <span>Évolution 4 ans</span>
+            </button>
           </div>
 
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
@@ -1890,6 +1900,13 @@ const IndividualFitnessCard = () => {
                 "Chaque mouvement compte ! Commence par de petites activités quotidiennes pour progresser vers les 60 minutes recommandées par l'OMS."}
             </p>
           </div>
+
+          {showEvolution && selectedStudent && (
+            <StudentEvolutionPanel
+              student={selectedStudent}
+              onClose={() => setShowEvolution(false)}
+            />
+          )}
         </div>
       </div>
     );
