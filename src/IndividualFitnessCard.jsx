@@ -821,7 +821,7 @@ const generateHTML = (yearsData, reportType, collegeName) => {
         </div>
         ${bestProgress ? `<div class="advice-box" style="margin-top:6px; background:#f0fdf4; border-color:#86efac;">
           <div class="advice-title" style="color:#15803d;">Capitaliser sur les points forts</div>
-          <p>La ${CATEGORIES[bestProgress.cat].name.toLowerCase()} est le point fort de ${first.firstName}. Encouragez des activités qui développent cette qualité (${bestProgress.cat === 'ENDURANCE' ? 'course, natation, vélo' : bestProgress.cat === 'FORCE' ? 'gym, escalade, sports collectifs' : bestProgress.cat === 'VITESSE' ? 'sprint, sports de raquette' : bestProgress.cat === 'SOUPLESSE' ? 'yoga, danse, natation' : bestProgress.cat === 'COORDINATION' ? 'danse, arts martiaux, sport co' : 'équitation, yoga, surf'}).`}</p>
+          <p>La ${CATEGORIES[bestProgress.cat].name.toLowerCase()} est le point fort de ${first.firstName}. Encouragez des activités qui développent cette qualité.</p>
         </div>` : ''}
         ${worstProgress && worstProgress.delta < 0 ? `<div class="advice-box" style="margin-top:6px; background:#fef2f2; border-color:#fca5a5;">
           <div class="advice-title" style="color:#dc2626;">Axes de progrès</div>
