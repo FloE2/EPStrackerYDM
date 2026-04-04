@@ -27,6 +27,7 @@ import { supabase } from './lib/supabase.js';
 import { useSchoolYear } from './contexts/SchoolYearContext';
 import { ExcelImportModal } from './ExcelImportModal';
 import StudentHistoryModal from './StudentHistoryModal';
+import EnergyAvatar from './EnergyAvatar.jsx';
 
 const ClassManagementSupabase = () => {
   const { selectedSchoolYear, currentSchoolYear } = useSchoolYear();
@@ -1211,8 +1212,14 @@ const ClassManagementSupabase = () => {
                     className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-200 p-4"
                   >
                     <div className="text-center mb-3">
-                      <div className="w-12 h-12 mx-auto bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-lg mb-2">
-                        {student.first_name.charAt(0)}{student.last_name.charAt(0)}
+                      <div className="flex justify-center mb-2">
+                        <EnergyAvatar
+                          firstName={student.first_name}
+                          lastName={student.last_name}
+                          score={studentStats.percentage > 0 ? Math.round(studentStats.percentage * 0.8) : null}
+                          size="sm"
+                          showLabel={false}
+                        />
                       </div>
                       <div className="font-bold text-gray-800 text-sm">
                         {student.last_name}
@@ -1330,16 +1337,16 @@ const ClassManagementSupabase = () => {
                     {filteredStudents.map((student) => (
                       <tr key={student.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                              <span className="text-blue-600 font-semibold text-sm">
-                                {student.first_name.charAt(0)}{student.last_name.charAt(0)}
-                              </span>
-                            </div>
-                            <div className="ml-4">
-                              <div className="text-sm font-medium text-gray-900">
-                                {student.first_name} {student.last_name}
-                              </div>
+                          <div className="flex items-center gap-3">
+                            <EnergyAvatar
+                              firstName={student.first_name}
+                              lastName={student.last_name}
+                              score={null}
+                              size="sm"
+                              showLabel={false}
+                            />
+                            <div className="text-sm font-medium text-gray-900">
+                              {student.first_name} {student.last_name}
                             </div>
                           </div>
                         </td>
