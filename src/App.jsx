@@ -490,8 +490,7 @@ const Navigation = ({ activeTab, setActiveTab }) => {
     { id: 'results', label: 'Saisie Résultats', icon: ClipboardList },
     { id: 'individual-cards', label: 'Fiches Individuelles', icon: UserCheck }, // NOUVEAU
     { id: 'challenges', label: 'Challenges Classes', icon: Trophy },           // NOUVEAU
-    { id: 'quick-entry', label: 'Mode Élève', icon: Zap },
-    { id: 'supabase-test', label: '🧪 Test Supabase', icon: Activity }
+    { id: 'quick-entry', label: 'Mode Élève', icon: Zap }
   ];
 
   return (
@@ -541,8 +540,6 @@ function App() {
         return <IndividualFitnessCard setActiveTab={setActiveTab} />;
       case 'challenges':              // NOUVEAU
         return <ChallengesClasses />;
-      case 'supabase-test':
-        return <SupabaseTest />;
       default:
         return <SynthesisSupabase setActiveTab={setActiveTab} />;
     }
