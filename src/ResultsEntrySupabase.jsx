@@ -1040,7 +1040,7 @@ const ResultsEntrySupabase = () => {
         <div className="flex items-center justify-center py-12">
           <Loader className="animate-spin text-blue-500 mr-3" size={24} />
           <span className="text-gray-600">
-            {selectedClass ? 'Chargement de la classe (instance centralisée)...' : 'Chargement des classes (instance centralisée)...'}
+            {selectedClass ? 'Chargement de la classe...' : 'Chargement des classes...'}
           </span>
         </div>
       </div>
