@@ -42,6 +42,7 @@ import {
 import { supabase } from './lib/supabase.js';
 import { useSchoolYear } from './contexts/SchoolYearContext.jsx';
 import StudentEvolutionPanel from './StudentEvolutionPanel.jsx';
+import EnergyAvatar from './EnergyAvatar.jsx';
 
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
@@ -2661,20 +2662,16 @@ const IndividualFitnessCard = () => {
                 </div>
               </div>
               
-              {/* Section Photo de profil / Avatar */}
+              {/* Avatar Énergie Santé */}
               <div className="flex items-center justify-center">
-                <div className="relative group">
-                  <div className="w-32 h-32 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl border-4 border-white shadow-lg flex flex-col items-center justify-center transition-all duration-300 group-hover:shadow-xl">
-                    <User size={40} className="text-gray-400 mb-2" strokeWidth={1.5} />
-                    <span className="text-xs text-gray-500 font-medium text-center px-2">
-                      Photo de profil
-                    </span>
-                  </div>
-                  {/* Badge indicateur (optionnel pour plus tard) */}
-                  <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-blue-500 rounded-full border-4 border-white shadow-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-white text-xs font-bold">+</span>
-                  </div>
-                </div>
+                <EnergyAvatar
+                  firstName={selectedStudent.first_name}
+                  lastName={selectedStudent.last_name}
+                  score={globalScore}
+                  size="lg"
+                  showLabel={true}
+                  showScore={true}
+                />
               </div>
               
               {/* Section Graphique Radar + Score Global */}
