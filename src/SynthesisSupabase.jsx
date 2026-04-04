@@ -356,15 +356,12 @@ const SynthesisSupabase = ({ setActiveTab }) => {
                       Année courante
                     </span>
                   )}
-                  <span className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-full">
-                    Instance unique
-                  </span>
+
                 </div>
               </div>
             </div>
             
             <div className="flex items-center space-x-3">
-              <ConnectionStatus />
               <button 
                 onClick={loadDashboardData}
                 disabled={loading}
@@ -726,9 +723,7 @@ const SynthesisSupabase = ({ setActiveTab }) => {
                         Année courante
                       </span>
                     )}
-                    <span className="ml-2 bg-blue-500 bg-opacity-80 px-2 py-1 rounded-full text-xs">
-                      Instance unique
-                    </span>
+
                   </p>
                 </div>
                 
@@ -754,25 +749,15 @@ const SynthesisSupabase = ({ setActiveTab }) => {
           </>
         )}
 
-        {/* FOOTER compact avec info année et instance centralisée */}
+        {/* FOOTER compact */}
         <div className="text-center text-gray-500 text-xs">
           <div className="flex items-center justify-center space-x-4">
             <div className="flex items-center space-x-1">
-              <Database size={12} />
-              <span>Instance unique</span>
-            </div>
-            <span>•</span>
-            <div className="flex items-center space-x-1">
               <Calendar size={12} />
-              <span>Filtré par année</span>
-            </div>
-            <span>•</span>
-            <div className="flex items-center space-x-1">
-              <CheckCircle size={12} className="text-green-500" />
-              <span>Plus d'erreurs GoTrueClient</span>
+              <span>Filtré par année scolaire</span>
             </div>
           </div>
-          <p className="mt-1">Dashboard Aptitudes Physiques - Collège Yves du Manoir - {selectedSchoolYear} - Instance Supabase centralisée</p>
+          <p className="mt-1">Dashboard Aptitudes Physiques — Collège Yves du Manoir — {selectedSchoolYear}</p>
         </div>
       </div>
     </div>
