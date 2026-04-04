@@ -1749,16 +1749,10 @@ const IndividualFitnessCard = () => {
                 </div>
               </div>
               
-              {/* Section Graphique Radar + Score Global */}
+              {/* Section Score Global */}
               <div className="flex items-center space-x-6">
-                {/* Graphique Radar */}
-                <CategoryRadarChart 
-                  studentScores={studentScores}
-                  statistics={radarStatistics}
-                />
-                
                 {/* Score Global */}
-                <div className="text-center border-l-2 border-gray-200 pl-8">
+                <div className="text-center">
                   <div className="text-5xl font-bold mb-2" style={{ color: getScoreColor(globalScore) }}>
                     {globalScore}<span className="text-2xl">/100</span>
                   </div>
@@ -1772,6 +1766,13 @@ const IndividualFitnessCard = () => {
                        }}>
                     {getScoreLevel(globalScore)}
                   </div>
+                  <button
+                    onClick={() => setShowEvolution(true)}
+                    className="mt-3 flex items-center space-x-1 text-xs text-indigo-600 hover:text-indigo-800 transition-colors mx-auto"
+                  >
+                    <TrendingUp size={12} />
+                    <span>Voir l'évolution 4 ans</span>
+                  </button>
                 </div>
               </div>
             </div>
