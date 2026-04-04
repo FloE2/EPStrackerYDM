@@ -34,6 +34,7 @@ import QuickResultsEntrySupabase from './components/QuickResultsEntrySupabase.js
 import SynthesisSupabase from './SynthesisSupabase.jsx';
 import IndividualFitnessCard from './IndividualFitnessCard.jsx';
 import ChallengesClasses from './ChallengesClasses.jsx';  // AJOUTÉ
+import TrendAnalysis from './TrendAnalysis.jsx';           // TENDANCES
 
 // ===== COMPOSANT DE TEST SUPABASE CORRIGÉ =====
 const SupabaseTest = () => {
@@ -490,7 +491,8 @@ const Navigation = ({ activeTab, setActiveTab }) => {
     { id: 'results', label: 'Saisie Résultats', icon: ClipboardList },
     { id: 'individual-cards', label: 'Fiches Individuelles', icon: UserCheck }, // NOUVEAU
     { id: 'challenges', label: 'Challenges Classes', icon: Trophy },           // NOUVEAU
-    { id: 'quick-entry', label: 'Mode Élève', icon: Zap }
+    { id: 'quick-entry', label: 'Mode Élève', icon: Zap },
+    { id: 'trends', label: '📈 Tendances', icon: BarChart3 },
   ];
 
   return (
@@ -540,6 +542,8 @@ function App() {
         return <IndividualFitnessCard setActiveTab={setActiveTab} />;
       case 'challenges':              // NOUVEAU
         return <ChallengesClasses />;
+      case 'trends':
+        return <TrendAnalysis />;
       default:
         return <SynthesisSupabase setActiveTab={setActiveTab} />;
     }
