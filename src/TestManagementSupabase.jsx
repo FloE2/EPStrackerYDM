@@ -388,7 +388,7 @@ const TestManagementSupabase = () => {
       <div className="container mx-auto px-4 py-6">
         <div className="flex items-center justify-center py-12">
           <Loader className="animate-spin text-blue-500 mr-3" size={24} />
-          <span className="text-gray-600">Chargement des tests depuis Supabase (instance centralisÃ©e)...</span>
+          <span className="text-gray-600">Chargement des tests...</span>
         </div>
       </div>
     );
@@ -401,7 +401,7 @@ const TestManagementSupabase = () => {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-2">Tests Physiques par CatÃ©gorie</h2>
-            <p className="text-gray-600">Consultez les {tests.length} tests disponibles - Instance Supabase centralisÃ©e</p>
+            <p className="text-gray-600">Consultez les {tests.length} tests disponibles</p>
           </div>
           <button
             onClick={openCreateModal}
@@ -919,16 +919,6 @@ const TestManagementSupabase = () => {
         </div>
       )}
 
-      {/* Footer Note */}
-      <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
-        <div className="flex items-center space-x-2">
-          <CheckCircle className="text-green-600" size={16} />
-          <p className="text-sm text-green-700">
-            <strong>Instance Supabase centralisÃ©e :</strong> Ce composant utilise maintenant l'instance unique de Supabase. 
-            Plus d'erreurs "Multiple GoTrueClient instances" !
-          </p>
-        </div>
-      </div>
     </div>
   );
 };
