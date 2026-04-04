@@ -238,7 +238,9 @@ const computeYearData = async (record, onProgress) => {
 // ─── Générateurs SVG inline pour l'impression ─────────────────────────────────
 
 const svgRadar = (scores, size = 200) => {
-  const cx = size / 2, cy = size / 2, r = size * 0.38;
+  const pad = 32; // padding for labels
+  const total = size + pad * 2;
+  const cx = total / 2, cy = total / 2, r = size * 0.38;
   const keys = Object.keys(CATEGORIES);
   const n = keys.length;
   const pts = keys.map((k, i) => {
@@ -246,13 +248,8 @@ const svgRadar = (scores, size = 200) => {
     const val = (scores[k] || 0) / 100;
     return { x: cx + Math.cos(angle) * r * val, y: cy + Math.sin(angle) * r * val };
   });
-  const gridPts = keys.map((_, i) => {
-    const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
-    return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
-  });
 
   const polyPts = pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-  const gridStr = gridPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 
   const gridLines = keys.map((_, i) => {
     const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
@@ -271,13 +268,13 @@ const svgRadar = (scores, size = 200) => {
 
   const labels = keys.map((k, i) => {
     const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
-    const lx = cx + Math.cos(angle) * (r + 22);
-    const ly = cy + Math.sin(angle) * (r + 22);
+    const lx = cx + Math.cos(angle) * (r + 20);
+    const ly = cy + Math.sin(angle) * (r + 20);
     const meta = CATEGORIES[k];
     return `<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="bold" fill="${meta.color}">${meta.icon} ${meta.name.slice(0, 4)}</text>`;
   }).join('');
 
-  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+  return `<svg width="${total}" height="${total}" viewBox="0 0 ${total} ${total}" xmlns="http://www.w3.org/2000/svg">
     ${rings}${gridLines}
     <polygon points="${polyPts}" fill="#6366f1" fill-opacity="0.25" stroke="#6366f1" stroke-width="2"/>
     ${labels}
@@ -285,7 +282,9 @@ const svgRadar = (scores, size = 200) => {
 };
 
 const svgRadarMulti = (yearsData, size = 220) => {
-  const cx = size / 2, cy = size / 2, r = size * 0.36;
+  const pad = 30;
+  const total = size + pad * 2;
+  const cx = total / 2, cy = total / 2, r = size * 0.36;
   const keys = Object.keys(CATEGORIES);
   const n = keys.length;
   const colors = Object.values(LEVEL_STYLES).map(s => s.color);
@@ -330,7 +329,7 @@ const svgRadarMulti = (yearsData, size = 220) => {
     <text x="${15 + i * 55}" y="${size - 7}" font-size="8" fill="${color}" font-weight="bold">${y.level}</text>`;
   }).join('');
 
-  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+  return `<svg width="${total}" height="${total}" viewBox="0 0 ${total} ${total}" xmlns="http://www.w3.org/2000/svg">
     ${rings}${gridLines}${polys}${labels}${legend}
   </svg>`;
 };
