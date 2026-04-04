@@ -40,6 +40,7 @@ import {
 import { supabase } from './lib/supabase.js';
 import { useSchoolYear } from './contexts/SchoolYearContext.jsx';
 import StudentEvolutionPanel from './StudentEvolutionPanel.jsx';
+import ParentReportGenerator from './ParentReportGenerator.jsx';
 
 const IndividualFitnessCard = () => {
   const { selectedSchoolYear, currentSchoolYear } = useSchoolYear();
@@ -1712,6 +1713,12 @@ const IndividualFitnessCard = () => {
               <TrendingUp size={16} />
               <span>Évolution 4 ans</span>
             </button>
+
+            <ParentReportGenerator
+              student={selectedStudent}
+              currentSchoolYear={selectedSchoolYear}
+              collegeName="Collège Yves du Manoir de Vaucresson"
+            />
           </div>
 
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
