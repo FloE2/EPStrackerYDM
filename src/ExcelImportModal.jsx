@@ -252,7 +252,30 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
     };
   };
 
-  // Importer les élèves - VERSION CORRIGÉE
+  // Recherche d'un élève existant dans toutes les années pour récupérer son permanent_id
+  const findExistingPermanentId = async (firstName, lastName, birthDate) => {
+    try {
+      let query = supabase
+        .from('students')
+        .select('permanent_id')
+        .ilike('first_name', firstName.trim())
+        .ilike('last_name', lastName.trim().toUpperCase());
+
+      // Si on a une date de naissance, on l'utilise pour affiner la recherche
+      if (birthDate) {
+        query = query.eq('birth_date', birthDate);
+      }
+
+      const { data, error } = await query.limit(1);
+
+      if (error || !data || data.length === 0) return null;
+      return data[0].permanent_id;
+    } catch {
+      return null;
+    }
+  };
+
+  // Importer les élèves - VERSION AVEC SUIVI MULTI-ANNEES (permanent_id)
   const importStudents = async () => {
     const validation = validateData();
     
@@ -264,86 +287,84 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
     setImporting(true);
     setStep(3);
     
-    const studentsToImport = excelData
-      .filter(row => {
-        const firstName = row[mapping.firstName]?.toString().trim();
-        const lastName = row[mapping.lastName]?.toString().trim();
-        
-        // Exclure les doublons
-        if (!firstName || !lastName) return false;
-        
-        const isDuplicate = existingStudents.some(student => 
-          student.first_name.toLowerCase() === firstName.toLowerCase() && 
-          student.last_name.toLowerCase() === lastName.toLowerCase()
-        );
-        
-        return !isDuplicate;
-      })
-      .map(row => {
-        const studentData = {
-          first_name: row[mapping.firstName]?.toString().trim(),
-          last_name: row[mapping.lastName]?.toString().trim().toUpperCase(),
-          class_id: selectedClass.id,
-          school_year: selectedSchoolYear // Ajout de l'année scolaire
-        };
-        
-        // NOUVELLE MÉTHODE pour traiter la date de naissance avec parseExcelDate
-        if (mapping.birthDate && row[mapping.birthDate]) {
-          const parsedDate = parseExcelDate(row[mapping.birthDate]);
-          if (parsedDate) {
-            studentData.birth_date = parsedDate;
-          }
-        }
-        
-        // Ajouter le genre si fourni
-        if (mapping.gender && row[mapping.gender]) {
-          const gender = row[mapping.gender]?.toString().trim().toUpperCase();
-          if (gender === 'M' || gender === 'MASCULIN' || gender === 'GARCON' || gender === 'GARÇON') {
-            studentData.gender = 'M';
-          } else if (gender === 'F' || gender === 'FEMININ' || gender === 'FÉMININ' || gender === 'FILLE') {
-            studentData.gender = 'F';
-          }
-        }
-        
-        return studentData;
-      });
-    
+    const rowsToImport = excelData.filter(row => {
+      const firstName = row[mapping.firstName]?.toString().trim();
+      const lastName = row[mapping.lastName]?.toString().trim();
+      if (!firstName || !lastName) return false;
+      const isDuplicate = existingStudents.some(student => 
+        student.first_name.toLowerCase() === firstName.toLowerCase() && 
+        student.last_name.toLowerCase() === lastName.toLowerCase()
+      );
+      return !isDuplicate;
+    });
+
     try {
       let successCount = 0;
+      let linkedCount = 0;
       const errors = [];
       
-      // Importer un par un pour capturer les erreurs individuelles
-      for (const studentData of studentsToImport) {
+      for (const row of rowsToImport) {
         try {
-          const { error } = await supabase
-            .from('students')
-            .insert([studentData]);
+          const firstName = row[mapping.firstName]?.toString().trim();
+          const lastName = row[mapping.lastName]?.toString().trim().toUpperCase();
+
+          // Construire les données de base
+          const studentData = {
+            first_name: firstName,
+            last_name: lastName,
+            class_id: selectedClass.id,
+            school_year: selectedSchoolYear
+          };
+
+          // Traitement date de naissance
+          let parsedBirthDate = null;
+          if (mapping.birthDate && row[mapping.birthDate]) {
+            parsedBirthDate = parseExcelDate(row[mapping.birthDate]);
+            if (parsedBirthDate) studentData.birth_date = parsedBirthDate;
+          }
+
+          // Genre
+          if (mapping.gender && row[mapping.gender]) {
+            const gender = row[mapping.gender]?.toString().trim().toUpperCase();
+            if (['M', 'MASCULIN', 'GARCON', 'GARÇON'].includes(gender)) studentData.gender = 'M';
+            else if (['F', 'FEMININ', 'FÉMININ', 'FILLE'].includes(gender)) studentData.gender = 'F';
+          }
+
+          // ✨ CLEF DU SUIVI MULTI-ANNEES :
+          // Chercher si cet élève existe déjà dans une autre année pour récupérer son permanent_id
+          const existingPermanentId = await findExistingPermanentId(firstName, lastName, parsedBirthDate);
+          if (existingPermanentId) {
+            studentData.permanent_id = existingPermanentId;
+            linkedCount++;
+          }
+          // Sinon, Supabase génère automatiquement un nouveau permanent_id (DEFAULT gen_random_uuid())
+
+          const { error } = await supabase.from('students').insert([studentData]);
           
           if (error) {
-            errors.push(`${studentData.first_name} ${studentData.last_name}: ${error.message}`);
+            errors.push(`${firstName} ${lastName}: ${error.message}`);
           } else {
             successCount++;
           }
         } catch (err) {
-          errors.push(`${studentData.first_name} ${studentData.last_name}: ${err.message}`);
+          errors.push(`Erreur: ${err.message}`);
         }
       }
       
       setImportResults({ 
-        success: successCount, 
+        success: successCount,
+        linked: linkedCount,
         errors, 
         duplicates: validation.duplicates 
       });
       
-      // Notifier le parent pour actualiser la liste
-      if (successCount > 0) {
-        onStudentsAdded();
-      }
+      if (successCount > 0) onStudentsAdded();
       
     } catch (error) {
       console.error('Erreur lors de l\'import:', error);
       setImportResults({ 
-        success: 0, 
+        success: 0,
+        linked: 0,
         errors: ['Erreur générale: ' + error.message], 
         duplicates: validation.duplicates 
       });
@@ -696,6 +717,16 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                         <div className="text-sm text-red-700">Erreurs</div>
                       </div>
                     </div>
+                    {importResults.linked > 0 && (
+                      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 max-w-md mx-auto text-center">
+                        <div className="text-indigo-700 font-semibold text-sm">
+                          🔗 {importResults.linked} élève{importResults.linked > 1 ? 's' : ''} reconnu{importResults.linked > 1 ? 's' : ''} depuis une année précédente
+                        </div>
+                        <div className="text-indigo-500 text-xs mt-1">
+                          Leur historique de performances est automatiquement lié !
+                        </div>
+                      </div>
+                    )}
                     
                     {/* Détails des erreurs */}
                     {importResults.errors.length > 0 && (
