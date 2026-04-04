@@ -19,12 +19,14 @@ import {
   Target,
   XCircle,
   AlertTriangle,
-  Printer
+  Printer,
+  TrendingUp
 } from 'lucide-react';
 
 import { supabase } from './lib/supabase.js';
 import { useSchoolYear } from './contexts/SchoolYearContext';
 import { ExcelImportModal } from './ExcelImportModal';
+import StudentHistoryModal from './StudentHistoryModal';
 
 const ClassManagementSupabase = () => {
   const { selectedSchoolYear, currentSchoolYear } = useSchoolYear();
@@ -45,6 +47,8 @@ const ClassManagementSupabase = () => {
   const [showEditStudentModal, setShowEditStudentModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showCreateClassModal, setShowCreateClassModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyStudent, setHistoryStudent] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [editingStudent, setEditingStudent] = useState(null);
 
@@ -359,16 +363,36 @@ const ClassManagementSupabase = () => {
         return;
       }
 
+      const firstName = newStudent.firstName.trim();
+      const lastName = newStudent.lastName.trim().toUpperCase();
+      const birthDate = newStudent.birthDate || null;
+
+      // ✨ Chercher si cet élève existe déjà dans une autre année (permanent_id)
+      let permanentId = null;
+      try {
+        let query = supabase
+          .from('students')
+          .select('permanent_id')
+          .ilike('first_name', firstName)
+          .ilike('last_name', lastName);
+        if (birthDate) query = query.eq('birth_date', birthDate);
+        const { data } = await query.limit(1);
+        if (data && data.length > 0) permanentId = data[0].permanent_id;
+      } catch {}
+
+      const studentPayload = {
+        first_name: firstName,
+        last_name: lastName,
+        birth_date: birthDate,
+        gender: newStudent.gender || null,
+        class_id: selectedClass.id,
+        school_year: selectedSchoolYear,
+        ...(permanentId ? { permanent_id: permanentId } : {})
+      };
+
       const { data, error } = await supabase
         .from('students')
-        .insert([{
-          first_name: newStudent.firstName.trim(),
-          last_name: newStudent.lastName.trim().toUpperCase(),
-          birth_date: newStudent.birthDate || null,
-          gender: newStudent.gender || null,
-          class_id: selectedClass.id,
-          school_year: selectedSchoolYear
-        }])
+        .insert([studentPayload])
         .select();
 
       if (error) {
@@ -377,11 +401,8 @@ const ClassManagementSupabase = () => {
         return;
       }
 
-      console.log('Élève ajouté avec succès:', data);
-      
       setShowAddStudentModal(false);
       setNewStudent({ firstName: '', lastName: '', birthDate: '', gender: '' });
-      
       loadStudents(selectedClass.id);
       
     } catch (error) {
@@ -1253,6 +1274,14 @@ const ClassManagementSupabase = () => {
                       </button>
                       
                       <button
+                        onClick={() => { setHistoryStudent(student); setShowHistoryModal(true); }}
+                        className="p-2 text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 rounded-md transition-colors"
+                        title="Voir l'historique pluriannuel"
+                      >
+                        <TrendingUp size={16} />
+                      </button>
+                      
+                      <button
                         onClick={() => openEditStudent(student)}
                         className="p-2 text-orange-600 hover:text-orange-900 hover:bg-orange-50 rounded-md transition-colors"
                         title="Modifier l'élève"
@@ -1347,6 +1376,14 @@ const ClassManagementSupabase = () => {
                           >
                             <Eye size={16} />
                           </button>
+
+                          <button
+                            onClick={() => { setHistoryStudent(student); setShowHistoryModal(true); }}
+                            className="text-indigo-600 hover:text-indigo-900 mr-3"
+                            title="Historique pluriannuel"
+                          >
+                            <TrendingUp size={16} />
+                          </button>
                           
                           <button
                             onClick={() => openEditStudent(student)}
@@ -1375,6 +1412,13 @@ const ClassManagementSupabase = () => {
       )}
 
       {selectedStudent && <StudentDetailView student={selectedStudent} />}
+
+      {showHistoryModal && historyStudent && (
+        <StudentHistoryModal
+          student={historyStudent}
+          onClose={() => { setShowHistoryModal(false); setHistoryStudent(null); }}
+        />
+      )}
 
       {showAddStudentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
