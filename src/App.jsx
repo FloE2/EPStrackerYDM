@@ -17,7 +17,8 @@ import {
   ChevronDown, 
   User,
   Trophy,      // AJOUTÉ POUR CHALLENGES
-  UserCheck    // AJOUTÉ POUR FICHES INDIVIDUELLES
+  UserCheck,   // AJOUTÉ POUR FICHES INDIVIDUELLES
+  Eye          // MODE CONSULTATION
 } from 'lucide-react';
 
 // Import de la configuration Supabase centralisée
@@ -35,6 +36,10 @@ import SynthesisSupabase from './SynthesisSupabase.jsx';
 import IndividualFitnessCard from './IndividualFitnessCard.jsx';
 import ChallengesClasses from './ChallengesClasses.jsx';  // AJOUTÉ
 import TrendAnalysis from './TrendAnalysis.jsx';           // TENDANCES
+
+// ===== MODE CONSULTATION (URL : ?viewer) =====
+// Partager l'URL eps-tracker-ydm.vercel.app?viewer pour un accès lecture seule
+const IS_VIEWER_MODE = new URLSearchParams(window.location.search).has('viewer');
 
 // ===== COMPOSANT DE TEST SUPABASE CORRIGÉ =====
 const SupabaseTest = () => {
@@ -348,6 +353,17 @@ const Header = () => {
               )}
             </div>
 
+            {/* Badge mode consultation */}
+            {IS_VIEWER_MODE && (
+              <div className="flex items-center space-x-2 bg-purple-100 text-purple-700 border border-purple-200 px-3 py-2 rounded-lg">
+                <Eye size={16} />
+                <div>
+                  <p className="text-xs font-semibold leading-none">Mode consultation</p>
+                  <p className="text-xs opacity-75 leading-none mt-0.5">Lecture seule</p>
+                </div>
+              </div>
+            )}
+
             {/* Signature créateur */}
             <div className="flex items-center space-x-3">
               <div className="text-right">
@@ -484,16 +500,18 @@ const Header = () => {
 
 // Composant Navigation - AVEC LES 2 NOUVEAUX ONGLETS
 const Navigation = ({ activeTab, setActiveTab }) => {
-  const tabs = [
-    { id: 'synthesis', label: 'Synthèse', icon: BarChart3 },
-    { id: 'classes', label: 'Gestion des Classes', icon: Users },
-    { id: 'tests', label: 'Tests Physiques', icon: Activity },
-    { id: 'results', label: 'Saisie Résultats', icon: ClipboardList },
-    { id: 'individual-cards', label: 'Fiches Individuelles', icon: UserCheck }, // NOUVEAU
-    { id: 'challenges', label: 'Challenges Classes', icon: Trophy },           // NOUVEAU
-    { id: 'quick-entry', label: 'Mode Élève', icon: Zap },
-    { id: 'trends', label: '📈 Tendances', icon: BarChart3 },
+  const allTabs = [
+    { id: 'synthesis',        label: 'Synthèse',             icon: BarChart3,     viewer: true  },
+    { id: 'classes',          label: 'Gestion des Classes',  icon: Users,         viewer: false },
+    { id: 'tests',            label: 'Tests Physiques',      icon: Activity,      viewer: false },
+    { id: 'results',          label: 'Saisie Résultats',     icon: ClipboardList, viewer: false },
+    { id: 'individual-cards', label: 'Fiches Individuelles', icon: UserCheck,     viewer: true  },
+    { id: 'challenges',       label: 'Challenges Classes',   icon: Trophy,        viewer: true  },
+    { id: 'quick-entry',      label: 'Mode Élève',           icon: Zap,           viewer: false },
+    { id: 'trends',           label: '📈 Tendances',         icon: BarChart3,     viewer: true  },
   ];
+
+  const tabs = IS_VIEWER_MODE ? allTabs.filter(t => t.viewer) : allTabs;
 
   return (
     <nav className="bg-white shadow-md border-b">
@@ -526,10 +544,20 @@ const Navigation = ({ activeTab, setActiveTab }) => {
 function App() {
   const [activeTab, setActiveTab] = useState('synthesis'); // PAGE D'ACCUEIL = DASHBOARD
 
+  // Onglets autorisés en mode consultation
+  const viewerTabs = ['synthesis', 'individual-cards', 'challenges', 'trends'];
+
+  // Si mode viewer et onglet interdit → rediriger silencieusement
+  const safeSetActiveTab = (tab) => {
+    if (IS_VIEWER_MODE && !viewerTabs.includes(tab)) return;
+    setActiveTab(tab);
+  };
+
   const renderContent = () => {
-    switch (activeTab) {
+    const tab = (IS_VIEWER_MODE && !viewerTabs.includes(activeTab)) ? 'synthesis' : activeTab;
+    switch (tab) {
       case 'synthesis':
-        return <SynthesisSupabase setActiveTab={setActiveTab} />;
+        return <SynthesisSupabase setActiveTab={safeSetActiveTab} />;
       case 'classes':
         return <ClassManagementSupabase />;
       case 'tests':
@@ -537,15 +565,15 @@ function App() {
       case 'results':
         return <ResultsEntrySupabase />;
       case 'quick-entry':
-        return <QuickResultsEntrySupabase setActiveTab={setActiveTab} />;
-      case 'individual-cards':        // NOUVEAU
-        return <IndividualFitnessCard setActiveTab={setActiveTab} />;
-      case 'challenges':              // NOUVEAU
+        return <QuickResultsEntrySupabase setActiveTab={safeSetActiveTab} />;
+      case 'individual-cards':
+        return <IndividualFitnessCard setActiveTab={safeSetActiveTab} />;
+      case 'challenges':
         return <ChallengesClasses />;
       case 'trends':
         return <TrendAnalysis />;
       default:
-        return <SynthesisSupabase setActiveTab={setActiveTab} />;
+        return <SynthesisSupabase setActiveTab={safeSetActiveTab} />;
     }
   };
 
@@ -555,7 +583,7 @@ function App() {
     <SchoolYearProvider>
       <div className="min-h-screen bg-gray-100">
         {!isQuickEntryMode && <Header />}
-        {!isQuickEntryMode && <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />}
+        {!isQuickEntryMode && <Navigation activeTab={activeTab} setActiveTab={safeSetActiveTab} />}
         <main className="min-h-screen">
           {renderContent()}
         </main>
