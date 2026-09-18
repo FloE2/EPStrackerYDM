@@ -1,25 +1,24 @@
-// src/components/ResultsEntrySupabase.jsx - VERSION AVEC SAISIE FLUIDE ET NAVIGATION AMÉLIORÉE
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Users, 
-  Activity, 
-  Save, 
+// src/components/ResultsEntrySupabase.jsx - VERSION SAISIE PAR TEST EN VIGNETTES
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import {
+  Users,
+  Activity,
   ArrowLeft,
   Search,
-  Edit3,
   X,
   Loader,
   RefreshCw,
   BarChart3,
   CheckCircle,
   XCircle,
-  AlertTriangle,
-  BookOpen,
-  TrendingUp,
+  Ban,
+  UserX,
   Target,
-  Clock,
   Calendar,
-  Trash2
+  Trash2,
+  LayoutGrid,
+  Table as TableIcon,
+  ChevronRight
 } from 'lucide-react';
 
 // UTILISE L'INSTANCE CENTRALISÉE - PAS DE CRÉATION D'INSTANCE
@@ -28,54 +27,42 @@ import { supabase } from './lib/supabase.js';
 // Import du contexte année scolaire
 import { useSchoolYear } from './contexts/SchoolYearContext';
 
+// Tri alphabétique robuste (accents, casse) par nom de famille puis prénom
+const sortStudents = (list) =>
+  [...list].sort((a, b) =>
+    (a.last_name || '').localeCompare(b.last_name || '', 'fr', { sensitivity: 'base' }) ||
+    (a.first_name || '').localeCompare(b.first_name || '', 'fr', { sensitivity: 'base' })
+  );
+
 const ResultsEntrySupabase = () => {
   // Récupération de l'année scolaire sélectionnée
   const { selectedSchoolYear, currentSchoolYear } = useSchoolYear();
-  
-  // Ref pour maintenir la position de scroll
-  const tableScrollRef = useRef(null);
-  const scrollPosition = useRef({ top: 0, left: 0 });
-  
+
   // États principaux
   const [selectedClass, setSelectedClass] = useState(null);
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
   const [tests, setTests] = useState([]);
-  const [results, setResults] = useState({});
+  const [results, setResults] = useState({}); // { "studentId-testId": { status, value, id } }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
-  
-  // États pour la vue détaillée
+
+  // Mode d'affichage à l'intérieur d'une classe
+  const [viewMode, setViewMode] = useState('entry'); // 'entry' | 'overview'
+
+  // Saisie par test
+  const [selectedTest, setSelectedTest] = useState(null);
+  const [draftValues, setDraftValues] = useState({}); // { studentId: "12.5" } - brouillon en cours de frappe
+  const [savingStudentId, setSavingStudentId] = useState(null);
+  const [invalidStudentId, setInvalidStudentId] = useState(null);
+  const [pendingFocusStudentId, setPendingFocusStudentId] = useState(null);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [studentsCount, setStudentsCount] = useState({});
-  
-  // États d'édition
-  const [editingCell, setEditingCell] = useState(null);
-  const [editValue, setEditValue] = useState('');
-  const [editStatus, setEditStatus] = useState('result'); // 'result' | 'absent' | 'dispensed'
 
-  // Fonction pour sauvegarder et restaurer la position de scroll
-  const saveScrollPosition = () => {
-    if (tableScrollRef.current) {
-      scrollPosition.current = {
-        top: tableScrollRef.current.scrollTop,
-        left: tableScrollRef.current.scrollLeft
-      };
-    }
-  };
-
-  const restoreScrollPosition = () => {
-    if (tableScrollRef.current && scrollPosition.current) {
-      // Utiliser requestAnimationFrame pour s'assurer que le DOM est à jour
-      requestAnimationFrame(() => {
-        if (tableScrollRef.current) {
-          tableScrollRef.current.scrollTop = scrollPosition.current.top;
-          tableScrollRef.current.scrollLeft = scrollPosition.current.left;
-        }
-      });
-    }
-  };
+  // Refs vers les inputs des vignettes, pour la navigation clavier
+  const inputRefs = useRef(new Map());
 
   // Chargement initial et quand l'année change
   useEffect(() => {
@@ -91,39 +78,56 @@ const ResultsEntrySupabase = () => {
     }
   }, [selectedClass, selectedSchoolYear]);
 
+  // Quand on change de test, on réinitialise le brouillon avec les valeurs déjà enregistrées
+  useEffect(() => {
+    if (!selectedTest) return;
+    const newDraft = {};
+    students.forEach(student => {
+      const key = `${student.id}-${selectedTest.id}`;
+      const existing = results[key];
+      newDraft[student.id] = existing?.status === 'result' && existing.value !== null
+        ? String(existing.value)
+        : '';
+    });
+    setDraftValues(newDraft);
+  }, [selectedTest, students]);
+
+  // Focus différé sur une vignette (utilisé après un clic depuis la vue d'ensemble ou après validation)
+  useEffect(() => {
+    if (!pendingFocusStudentId) return;
+    const raf = requestAnimationFrame(() => {
+      const node = inputRefs.current.get(pendingFocusStudentId);
+      if (node) {
+        node.focus();
+        node.select?.();
+        node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+      setPendingFocusStudentId(null);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [pendingFocusStudentId, viewMode, selectedTest]);
+
   // Système de couleurs par niveau
   const getLevelColors = (level) => {
     const levelColorMap = {
-      '6ème': {
-        bg: 'bg-blue-50', 
-        border: 'border-blue-300', 
-        text: 'text-blue-700', 
-        accent: 'bg-blue-600',
-        hover: 'hover:bg-blue-100'
-      },
-      '5ème': {
-        bg: 'bg-emerald-50', 
-        border: 'border-emerald-300', 
-        text: 'text-emerald-700', 
-        accent: 'bg-emerald-600',
-        hover: 'hover:bg-emerald-100'
-      },
-      '4ème': {
-        bg: 'bg-orange-50', 
-        border: 'border-orange-300', 
-        text: 'text-orange-700', 
-        accent: 'bg-orange-600',
-        hover: 'hover:bg-orange-100'
-      },
-      '3ème': {
-        bg: 'bg-purple-50', 
-        border: 'border-purple-300', 
-        text: 'text-purple-700', 
-        accent: 'bg-purple-600',
-        hover: 'hover:bg-purple-100'
-      }
+      '6ème': { bg: 'bg-blue-50', border: 'border-blue-300', text: 'text-blue-700', accent: 'bg-blue-600', hover: 'hover:bg-blue-100' },
+      '5ème': { bg: 'bg-emerald-50', border: 'border-emerald-300', text: 'text-emerald-700', accent: 'bg-emerald-600', hover: 'hover:bg-emerald-100' },
+      '4ème': { bg: 'bg-orange-50', border: 'border-orange-300', text: 'text-orange-700', accent: 'bg-orange-600', hover: 'hover:bg-orange-100' },
+      '3ème': { bg: 'bg-purple-50', border: 'border-purple-300', text: 'text-purple-700', accent: 'bg-purple-600', hover: 'hover:bg-purple-100' }
     };
     return levelColorMap[level] || levelColorMap['6ème'];
+  };
+
+  const getCategoryColors = (category) => {
+    const categoryColorMap = {
+      'ENDURANCE': { bg: 'bg-blue-50', border: 'border-blue-300', text: 'text-blue-700', activeBg: 'bg-blue-600' },
+      'FORCE': { bg: 'bg-red-50', border: 'border-red-300', text: 'text-red-700', activeBg: 'bg-red-600' },
+      'SOUPLESSE': { bg: 'bg-green-50', border: 'border-green-300', text: 'text-green-700', activeBg: 'bg-green-600' },
+      'EQUILIBRE': { bg: 'bg-purple-50', border: 'border-purple-300', text: 'text-purple-700', activeBg: 'bg-purple-600' },
+      'VITESSE': { bg: 'bg-yellow-50', border: 'border-yellow-300', text: 'text-yellow-700', activeBg: 'bg-yellow-600' },
+      'COORDINATION': { bg: 'bg-indigo-50', border: 'border-indigo-300', text: 'text-indigo-700', activeBg: 'bg-indigo-600' }
+    };
+    return categoryColorMap[category] || categoryColorMap['ENDURANCE'];
   };
 
   // Chargement des classes et comptage des élèves - FILTRÉ PAR ANNÉE
@@ -131,47 +135,40 @@ const ResultsEntrySupabase = () => {
     try {
       setLoading(true);
       setError(null);
-      
-      console.log('🔗 ResultsEntry: Utilisation instance Supabase centralisée pour année', selectedSchoolYear);
-      
-      // Charger les classes filtrées par année scolaire
+
       const [classesRes, testsRes] = await Promise.all([
         supabase
           .from('classes')
           .select('*')
-          .eq('school_year', selectedSchoolYear) // ← FILTRE OBLIGATOIRE
+          .eq('school_year', selectedSchoolYear)
           .order('level'),
         supabase.from('tests').select('*').order('category')
       ]);
-      
+
       if (classesRes.error) throw classesRes.error;
       if (testsRes.error) throw testsRes.error;
-      
+
       setClasses(classesRes.data || []);
       setTests(testsRes.data || []);
-      
-      // Reset classe sélectionnée si elle n'existe pas dans cette année
+
       if (selectedClass && !classesRes.data.find(c => c.id === selectedClass.id)) {
         setSelectedClass(null);
         setStudents([]);
         setResults({});
       }
-      
-      // Compter les élèves par classe pour cette année
+
       const counts = {};
       for (const classe of classesRes.data) {
         const { count, error } = await supabase
           .from('students')
           .select('*', { count: 'exact', head: true })
           .eq('class_id', classe.id)
-          .eq('school_year', selectedSchoolYear); // ← FILTRE OBLIGATOIRE
-        
-        if (!error) {
-          counts[classe.id] = count || 0;
-        }
+          .eq('school_year', selectedSchoolYear);
+
+        if (!error) counts[classe.id] = count || 0;
       }
       setStudentsCount(counts);
-      
+
     } catch (err) {
       setError(err.message);
       console.error('Erreur lors du chargement:', err);
@@ -184,48 +181,35 @@ const ResultsEntrySupabase = () => {
   const loadClassData = async (classId) => {
     try {
       setLoading(true);
-      
-      // Charger élèves et résultats pour cette classe ET cette année
+
       const [studentsRes, resultsRes] = await Promise.all([
         supabase
           .from('students')
           .select('*')
           .eq('class_id', classId)
-          .eq('school_year', selectedSchoolYear) // ← FILTRE OBLIGATOIRE
-          .order('last_name', { ascending: true }),
+          .eq('school_year', selectedSchoolYear),
         supabase
           .from('results')
-          .select(`
-            *,
-            students!inner(class_id, school_year)
-          `)
+          .select(`*, students!inner(class_id, school_year)`)
           .eq('students.class_id', classId)
-          .eq('students.school_year', selectedSchoolYear) // ← FILTRE OBLIGATOIRE
+          .eq('students.school_year', selectedSchoolYear)
       ]);
-      
+
       if (studentsRes.error) throw studentsRes.error;
       if (resultsRes.error) throw resultsRes.error;
-      
-      setStudents(studentsRes.data || []);
-      
-      // Transformer les résultats avec format de clé standardisé
+
+      setStudents(sortStudents(studentsRes.data || []));
+
       const resultsMap = {};
       resultsRes.data.forEach(result => {
         const key = `${result.student_id}-${result.test_id}`;
-        
         let status = 'result';
         if (result.absent) status = 'absent';
         else if (result.dispensed) status = 'dispensed';
-        
-        resultsMap[key] = {
-          status: status,
-          value: result.value,
-          id: result.id
-        };
+        resultsMap[key] = { status, value: result.value, id: result.id };
       });
-      
       setResults(resultsMap);
-      
+
     } catch (err) {
       console.error('Erreur lors du chargement de la classe:', err);
       setError(err.message);
@@ -234,7 +218,6 @@ const ResultsEntrySupabase = () => {
     }
   };
 
-  // Fonctions utilitaires
   const getResultStatus = (studentId, testId) => {
     const key = `${studentId}-${testId}`;
     return results[key] || { status: 'empty' };
@@ -242,17 +225,13 @@ const ResultsEntrySupabase = () => {
 
   const getCompletionStats = () => {
     if (!students.length || !tests.length) return { percentage: 0, completed: 0, total: 0 };
-    
     const totalCells = students.length * tests.length;
     let completedCells = 0;
-    
     students.forEach(student => {
       tests.forEach(test => {
-        const result = getResultStatus(student.id, test.id);
-        if (result.status !== 'empty') completedCells++;
+        if (getResultStatus(student.id, test.id).status !== 'empty') completedCells++;
       });
     });
-    
     return {
       percentage: totalCells > 0 ? Math.round((completedCells / totalCells) * 100) : 0,
       completed: completedCells,
@@ -260,406 +239,223 @@ const ResultsEntrySupabase = () => {
     };
   };
 
-  const handleCellEdit = (studentId, testId, type = 'result') => {
-    // Sauvegarder la position de scroll AVANT d'ouvrir l'édition
-    saveScrollPosition();
-    
-    const current = getResultStatus(studentId, testId);
-    
-    setEditingCell({ studentId, testId });
-    setEditStatus(type);
-    setEditValue(current?.value || '');
+  // Complétion par test (pour les pastilles du sélecteur de test)
+  const getTestCompletion = (testId) => {
+    const total = students.length;
+    const completed = students.filter(s => getResultStatus(s.id, testId).status !== 'empty').length;
+    return { completed, total };
   };
 
-  // Navigation avec les touches
-  const handleKeyDown = (e, studentId, testId) => {
-    if (!editingCell) return;
-    
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveEdit();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      cancelEdit();
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
-      // Passer au test suivant ou à l'élève suivant
-      saveEdit().then(() => {
-        navigateToNextCell(studentId, testId, e.shiftKey);
-      });
-    }
-  };
+  // ---- Enregistrement d'un résultat (une vignette) ----
+  const persistResult = async (studentId, testId, status, value) => {
+    const key = `${studentId}-${testId}`;
+    const existing = results[key];
 
-  // Navigation vers la cellule suivante
-  const navigateToNextCell = (currentStudentId, currentTestId, reverse = false) => {
-    const currentStudentIndex = students.findIndex(s => s.id === currentStudentId);
-    const currentTestIndex = tests.findIndex(t => t.id === currentTestId);
-    
-    let nextStudentIndex = currentStudentIndex;
-    let nextTestIndex = currentTestIndex;
-    
-    if (reverse) {
-      // Navigation vers la gauche/haut
-      nextTestIndex--;
-      if (nextTestIndex < 0) {
-        nextTestIndex = tests.length - 1;
-        nextStudentIndex--;
-        if (nextStudentIndex < 0) {
-          nextStudentIndex = students.length - 1;
-        }
-      }
+    const resultData = {
+      student_id: parseInt(studentId),
+      test_id: parseInt(testId),
+      value: status === 'result' ? value : null,
+      absent: status === 'absent',
+      dispensed: status === 'dispensed',
+      unit: tests.find(t => t.id === parseInt(testId))?.unit || '',
+      school_year: selectedSchoolYear
+    };
+
+    let response;
+    if (existing?.id) {
+      response = await supabase.from('results').update(resultData).eq('id', existing.id);
     } else {
-      // Navigation vers la droite/bas
-      nextTestIndex++;
-      if (nextTestIndex >= tests.length) {
-        nextTestIndex = 0;
-        nextStudentIndex++;
-        if (nextStudentIndex >= students.length) {
-          nextStudentIndex = 0;
-        }
-      }
+      response = await supabase.from('results').insert([resultData]).select();
     }
-    
-    // Ouvrir l'édition de la nouvelle cellule après un court délai
-    setTimeout(() => {
-      const nextStudent = students[nextStudentIndex];
-      const nextTest = tests[nextTestIndex];
-      if (nextStudent && nextTest) {
-        handleCellEdit(nextStudent.id, nextTest.id);
-      }
-    }, 100);
+    if (response.error) throw response.error;
+
+    const newId = existing?.id || response.data?.[0]?.id;
+    setResults(prev => ({
+      ...prev,
+      [key]: { status, value: status === 'result' ? value : null, id: newId }
+    }));
   };
 
-  const saveEdit = async () => {
-    if (!editingCell) return;
-    
-    try {
-      setSaving(true);
-      
-      // Sauvegarder la position de scroll AVANT la sauvegarde
-      saveScrollPosition();
-      
-      const { studentId, testId } = editingCell;
-      const key = `${studentId}-${testId}`;
-      
-      const resultData = {
-        student_id: parseInt(studentId),
-        test_id: parseInt(testId),
-        value: editStatus === 'result' ? parseFloat(editValue) : null,
-        absent: editStatus === 'absent',
-        dispensed: editStatus === 'dispensed',
-        unit: tests.find(t => t.id === parseInt(testId))?.unit || '',
-        school_year: selectedSchoolYear // ← AJOUTER L'ANNÉE SCOLAIRE
-      };
+  const deleteResult = async (studentId, testId) => {
+    const key = `${studentId}-${testId}`;
+    const existing = results[key];
+    if (!existing?.id) return;
+    const { error } = await supabase.from('results').delete().eq('id', existing.id);
+    if (error) throw error;
+    setResults(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
 
-      const existingResult = results[key];
-      
-      let response;
-      if (existingResult?.id) {
-        response = await supabase
-          .from('results')
-          .update(resultData)
-          .eq('id', existingResult.id);
-      } else {
-        response = await supabase
-          .from('results')
-          .insert([resultData]);
-      }
-      
-      if (response.error) throw response.error;
-      
-      const newResult = {
-        status: editStatus,
-        value: editStatus === 'result' ? parseFloat(editValue) : null,
-        id: existingResult?.id || response.data?.[0]?.id
-      };
-      
-      setResults(prev => ({
-        ...prev,
-        [key]: newResult
-      }));
-      
-      setEditingCell(null);
-      setEditValue('');
-      setEditStatus('result');
-      
-      // Restaurer la position de scroll APRÈS la mise à jour de l'état
-      setTimeout(() => {
-        restoreScrollPosition();
-      }, 50);
-      
-    } catch (error) {
-      console.error('Erreur lors de la sauvegarde:', error);
-      alert('Erreur lors de la sauvegarde du résultat');
-    } finally {
-      setSaving(false);
+  // Ordre de navigation (liste filtrée affichée à l'écran)
+  const orderedFilteredStudents = useMemo(() => {
+    const base = sortStudents(students);
+    if (!searchTerm) return base;
+    const term = searchTerm.toLowerCase();
+    return base.filter(s => `${s.first_name} ${s.last_name}`.toLowerCase().includes(term));
+  }, [students, searchTerm]);
+
+  const focusNextAfter = (studentId) => {
+    const idx = orderedFilteredStudents.findIndex(s => s.id === studentId);
+    const next = orderedFilteredStudents[idx + 1];
+    if (next) {
+      setPendingFocusStudentId(next.id);
+    } else {
+      // dernier élève : on enlève le focus
+      inputRefs.current.get(studentId)?.blur();
     }
   };
 
-  const cancelEdit = () => {
-    setEditingCell(null);
-    setEditValue('');
-    setEditStatus('result');
-    // Restaurer la position de scroll
-    restoreScrollPosition();
-  };
+  // Validation + sauvegarde d'une valeur numérique, puis passage à l'élève suivant
+  const handleValidateAndNext = async (studentId) => {
+    if (!selectedTest) return;
+    const raw = (draftValues[studentId] ?? '').trim();
 
-  // NOUVELLES FONCTIONS DE NETTOYAGE DES VALEURS NULL
-  
-  // Fonction pour nettoyer les valeurs "null" d'un élève spécifique
-  const cleanNullValues = async (studentId) => {
-    try {
-      setSaving(true);
-      saveScrollPosition(); // Sauvegarder la position avant nettoyage
-      
-      // Récupérer TOUS les résultats de cet élève d'abord
-      const { data: allResults, error: fetchError } = await supabase
-        .from('results')
-        .select('*')
-        .eq('student_id', studentId)
-        .eq('school_year', selectedSchoolYear);
-      
-      if (fetchError) throw fetchError;
-      
-      // Filtrer côté client les résultats qui contiennent "null"
-      const nullResults = allResults?.filter(result => 
-        result.value === null || 
-        result.value === 'null' || 
-        result.value === 'NULL' ||
-        (typeof result.value === 'string' && result.value.toLowerCase().includes('null'))
-      ) || [];
-      
-      if (nullResults.length > 0) {
-        // Supprimer ces résultats de la base de données
-        const { error: deleteError } = await supabase
-          .from('results')
-          .delete()
-          .in('id', nullResults.map(r => r.id));
-        
-        if (deleteError) throw deleteError;
-        
-        // Mettre à jour l'état local
-        const newResults = { ...results };
-        nullResults.forEach(result => {
-          const key = `${result.student_id}-${result.test_id}`;
-          delete newResults[key];
-        });
-        setResults(newResults);
-        
-        setTimeout(() => restoreScrollPosition(), 50);
-        alert(`${nullResults.length} valeur(s) "null" supprimée(s) avec succès !`);
-      } else {
-        alert('Aucune valeur "null" trouvée pour cet élève.');
-      }
-      
-    } catch (error) {
-      console.error('Erreur lors du nettoyage:', error);
-      alert('Erreur lors du nettoyage des valeurs null');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Fonction pour nettoyer toutes les valeurs "null" de la classe
-  const cleanAllNullValues = async () => {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer toutes les valeurs "null" de cette classe ?')) {
+    // Champ vide : on ne sauvegarde rien, on passe simplement au suivant
+    if (raw === '') {
+      focusNextAfter(studentId);
       return;
     }
-    
+
+    const numeric = parseFloat(raw.replace(',', '.'));
+    if (isNaN(numeric)) {
+      setInvalidStudentId(studentId);
+      setTimeout(() => setInvalidStudentId(null), 1200);
+      return;
+    }
+
+    try {
+      setSavingStudentId(studentId);
+      await persistResult(studentId, selectedTest.id, 'result', numeric);
+      focusNextAfter(studentId);
+    } catch (err) {
+      console.error('Erreur lors de la sauvegarde:', err);
+      alert("Erreur lors de la sauvegarde du résultat");
+    } finally {
+      setSavingStudentId(null);
+    }
+  };
+
+  // Sauvegarde silencieuse (sans changer le focus) - utilisée quand on quitte le champ
+  const handleBlurSave = async (studentId) => {
+    if (!selectedTest) return;
+    const raw = (draftValues[studentId] ?? '').trim();
+    const existing = getResultStatus(studentId, selectedTest.id);
+
+    if (raw === '') return; // rien à faire
+    const alreadySaved = existing.status === 'result' && String(existing.value) === raw;
+    if (alreadySaved) return;
+
+    const numeric = parseFloat(raw.replace(',', '.'));
+    if (isNaN(numeric)) return;
+
+    try {
+      setSavingStudentId(studentId);
+      await persistResult(studentId, selectedTest.id, 'result', numeric);
+    } catch (err) {
+      console.error('Erreur lors de la sauvegarde:', err);
+    } finally {
+      setSavingStudentId(null);
+    }
+  };
+
+  const handleSetStatus = async (studentId, status) => {
+    if (!selectedTest) return;
+    try {
+      setSavingStudentId(studentId);
+      await persistResult(studentId, selectedTest.id, status, null);
+      setDraftValues(prev => ({ ...prev, [studentId]: '' }));
+      focusNextAfter(studentId);
+    } catch (err) {
+      console.error('Erreur lors de la sauvegarde:', err);
+      alert("Erreur lors de l'enregistrement");
+    } finally {
+      setSavingStudentId(null);
+    }
+  };
+
+  const handleClearResult = async (studentId) => {
+    if (!selectedTest) return;
+    try {
+      setSavingStudentId(studentId);
+      await deleteResult(studentId, selectedTest.id);
+      setDraftValues(prev => ({ ...prev, [studentId]: '' }));
+      setTimeout(() => inputRefs.current.get(studentId)?.focus(), 30);
+    } catch (err) {
+      console.error('Erreur lors de la suppression:', err);
+      alert("Erreur lors de la suppression du résultat");
+    } finally {
+      setSavingStudentId(null);
+    }
+  };
+
+  const handleKeyDown = (e, studentId) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleValidateAndNext(studentId);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      const existing = getResultStatus(studentId, selectedTest.id);
+      setDraftValues(prev => ({
+        ...prev,
+        [studentId]: existing.status === 'result' ? String(existing.value) : ''
+      }));
+      inputRefs.current.get(studentId)?.blur();
+    }
+  };
+
+  // Nettoyage global des valeurs "null"
+  const cleanAllNullValues = async () => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer toutes les valeurs "null" de cette classe ?')) return;
     try {
       setSaving(true);
-      saveScrollPosition(); // Sauvegarder la position avant nettoyage
-      
-      // Récupérer tous les IDs des élèves de cette classe
       const studentIds = students.map(s => s.id);
-      
-      // Récupérer TOUS les résultats de cette classe
       const { data: allResults, error: fetchError } = await supabase
         .from('results')
         .select('*')
         .in('student_id', studentIds)
         .eq('school_year', selectedSchoolYear);
-      
       if (fetchError) throw fetchError;
-      
-      // Filtrer côté client les résultats qui contiennent "null"
-      const nullResults = allResults?.filter(result => 
-        result.value === null || 
-        result.value === 'null' || 
-        result.value === 'NULL' ||
-        (typeof result.value === 'string' && result.value.toLowerCase().includes('null'))
+
+      const nullResults = allResults?.filter(r =>
+        r.value === null || r.value === 'null' || r.value === 'NULL' ||
+        (typeof r.value === 'string' && r.value.toLowerCase().includes('null'))
       ) || [];
-      
+
       if (nullResults.length > 0) {
-        // Supprimer ces résultats
-        const { error: deleteError } = await supabase
-          .from('results')
-          .delete()
-          .in('id', nullResults.map(r => r.id));
-        
+        const { error: deleteError } = await supabase.from('results').delete().in('id', nullResults.map(r => r.id));
         if (deleteError) throw deleteError;
-        
-        // Recharger les données
         await loadClassData(selectedClass.id);
-        
-        setTimeout(() => restoreScrollPosition(), 100);
         alert(`${nullResults.length} valeur(s) "null" supprimée(s) avec succès !`);
       } else {
         alert('Aucune valeur "null" trouvée dans cette classe.');
       }
-      
-    } catch (error) {
-      console.error('Erreur lors du nettoyage:', error);
+    } catch (err) {
+      console.error('Erreur lors du nettoyage:', err);
       alert('Erreur lors du nettoyage des valeurs null');
     } finally {
       setSaving(false);
     }
   };
 
-  // FONCTION DE GESTION AMÉLIORÉE POUR LA RECHERCHE
-  const handleSearchChange = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setSearchTerm(e.target.value);
-  };
-
-  // Fonction pour vider la recherche
-  const clearSearch = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setSearchTerm('');
-  };
-
   const refreshData = () => {
-    saveScrollPosition(); // Sauvegarder avant actualisation
     if (selectedClass) {
-      loadClassData(selectedClass.id).then(() => {
-        setTimeout(() => restoreScrollPosition(), 100);
-      });
+      loadClassData(selectedClass.id);
     } else {
       loadClassesAndCounts();
     }
   };
 
-  // Composant cellule de résultat avec CSS pour supprimer les spinners
-  const ResultCell = ({ student, test }) => {
-    const result = getResultStatus(student.id, test.id);
-    const isEditing = editingCell?.studentId === student.id && editingCell?.testId === test.id;
-    
-    if (isEditing) {
-      return (
-        <td className="p-2 border border-gray-300 bg-blue-50 relative z-50">
-          <style jsx>{`
-            .no-spinner::-webkit-outer-spin-button,
-            .no-spinner::-webkit-inner-spin-button {
-              -webkit-appearance: none;
-              margin: 0;
-            }
-            
-            .no-spinner[type=number] {
-              -moz-appearance: textfield;
-            }
-          `}</style>
-          <div className="space-y-2">
-            <div className="flex space-x-1">
-              <button
-                onClick={() => setEditStatus('result')}
-                className={`px-2 py-1 text-xs rounded ${
-                  editStatus === 'result' ? 'bg-blue-500 text-white' : 'bg-gray-200'
-                }`}
-              >
-                Résultat
-              </button>
-              <button
-                onClick={() => setEditStatus('absent')}
-                className={`px-2 py-1 text-xs rounded ${
-                  editStatus === 'absent' ? 'bg-red-500 text-white' : 'bg-gray-200'
-                }`}
-              >
-                Absent
-              </button>
-              <button
-                onClick={() => setEditStatus('dispensed')}
-                className={`px-2 py-1 text-xs rounded ${
-                  editStatus === 'dispensed' ? 'bg-orange-500 text-white' : 'bg-gray-200'
-                }`}
-              >
-                Dispensé
-              </button>
-            </div>
-            
-            {editStatus === 'result' && (
-              <input
-                type="number"
-                step="0.01"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onKeyDown={(e) => handleKeyDown(e, student.id, test.id)}
-                className="no-spinner w-full p-1 text-xs border rounded"
-                placeholder={test.unit}
-                autoFocus
-              />
-            )}
-            
-            <div className="flex space-x-1">
-              <button
-                onClick={saveEdit}
-                disabled={saving}
-                className="px-2 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 disabled:bg-gray-400"
-              >
-                {saving ? <Loader className="animate-spin" size={10} /> : '✓'}
-              </button>
-              <button
-                onClick={cancelEdit}
-                className="px-2 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="text-xs text-gray-500">
-              Enter: Valider | Esc: Annuler | Tab: Suivant
-            </div>
-          </div>
-        </td>
-      );
-    }
-
-    let cellContent, cellClass, bgClass;
-    
-    switch (result.status) {
-      case 'result':
-        cellContent = `${result.value} ${test.unit}`;
-        cellClass = 'text-green-800 font-medium';
-        bgClass = 'bg-green-50 hover:bg-green-100';
-        break;
-      case 'absent':
-        cellContent = 'ABS';
-        cellClass = 'text-red-800 font-medium';
-        bgClass = 'bg-red-50 hover:bg-red-100';
-        break;
-      case 'dispensed':
-        cellContent = 'DISP';
-        cellClass = 'text-orange-800 font-medium';
-        bgClass = 'bg-orange-50 hover:bg-orange-100';
-        break;
-      default:
-        cellContent = '—';
-        cellClass = 'text-gray-400';
-        bgClass = 'bg-gray-50 hover:bg-gray-100';
-    }
-
-    return (
-      <td 
-        className={`p-3 border border-gray-300 text-center text-sm cursor-pointer transition-colors ${bgClass}`}
-        onClick={() => handleCellEdit(student.id, test.id)}
-        title={`Cliquer pour modifier - ${student.first_name} ${student.last_name} - ${test.name}`}
-      >
-        <span className={cellClass}>{cellContent}</span>
-      </td>
-    );
+  // Depuis la vue d'ensemble : cliquer sur une cellule ouvre directement la vignette de cet élève pour ce test
+  const jumpToEntry = (student, test) => {
+    setSelectedTest(test);
+    setViewMode('entry');
+    setPendingFocusStudentId(student.id);
   };
 
-  // Vue sélection des classes
+  // ===================== VUE : SÉLECTION DE CLASSE =====================
   const ClassSelectionView = () => {
     const classesByLevel = {
       '6ème': classes.filter(c => c.level === '6ème').sort((a, b) => a.name.localeCompare(b.name)),
@@ -671,13 +467,11 @@ const ResultsEntrySupabase = () => {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="max-w-6xl mx-auto px-6">
-          {/* Header avec indication de l'année */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-800 mb-4">Interface Enseignant - Saisie des Résultats</h1>
             <p className="text-gray-600">Sélectionnez une classe pour saisir et modifier les résultats des élèves</p>
           </div>
 
-          {/* Affichage année scolaire */}
           <div className="bg-white rounded-lg shadow-md p-4 mb-8">
             <div className="flex items-center justify-center space-x-3">
               <Calendar className="text-blue-600" size={20} />
@@ -686,63 +480,53 @@ const ResultsEntrySupabase = () => {
                 {selectedSchoolYear}
               </span>
               {selectedSchoolYear === currentSchoolYear && (
-                <span className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-full">
-                  Année courante
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                  Année en cours
                 </span>
               )}
             </div>
           </div>
 
-          {/* Message si pas de classes */}
           {classes.length === 0 ? (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-12 text-center">
-              <BookOpen size={64} className="mx-auto text-yellow-500 mb-6" />
-              <h3 className="text-2xl font-semibold text-yellow-800 mb-4">
-                Aucune classe pour {selectedSchoolYear}
-              </h3>
-              <p className="text-yellow-700 mb-8 text-lg">
-                Aucune classe n'existe pour cette année scolaire. Créez d'abord des classes dans la section 
-                "Gestion des Classes" ou changez d'année scolaire.
-              </p>
+            <div className="bg-white rounded-lg shadow-sm p-12 text-center">
+              <Users className="mx-auto text-gray-400 mb-4" size={64} />
+              <h3 className="text-xl font-bold text-gray-700 mb-2">Aucune classe trouvée</h3>
+              <p className="text-gray-500">Aucune classe n'existe pour l'année {selectedSchoolYear}</p>
             </div>
           ) : (
-            // Grille des classes par niveau
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
               {Object.entries(classesByLevel).map(([level, levelClasses]) => (
                 levelClasses.length > 0 && (
                   <div key={level} className="space-y-6">
-                    {/* En-tête du niveau */}
                     <div className="text-center">
                       <div className="flex items-center justify-center space-x-3">
                         <div className={`w-3 h-3 rounded-full ${getLevelColors(level).accent}`}></div>
-                        <h2 className={`text-xl font-bold ${getLevelColors(level).text}`}>
-                          {level}
-                        </h2>
+                        <h2 className={`text-xl font-bold ${getLevelColors(level).text}`}>{level}</h2>
                         <div className={`w-3 h-3 rounded-full ${getLevelColors(level).accent}`}></div>
                       </div>
                     </div>
-                    
-                    {/* Classes du niveau */}
                     <div className="space-y-4">
                       {levelClasses.map((classe) => {
                         const colors = getLevelColors(classe.level);
                         const studentCount = studentsCount[classe.id] || 0;
-                        
                         return (
                           <button
                             key={classe.id}
-                            onClick={() => setSelectedClass(classe)}
+                            onClick={() => {
+                              setSelectedClass(classe);
+                              setViewMode('entry');
+                              setSelectedTest(null);
+                              setSearchTerm('');
+                            }}
                             className={`w-full p-6 rounded-xl border-2 transition-all duration-300 text-center transform hover:scale-105 hover:shadow-lg ${colors.bg} ${colors.border} ${colors.hover}`}
                           >
                             <div className={`text-2xl font-bold mb-4 ${colors.text}`}>
-                            {classe.level.charAt(0)}{classe.name}
+                              {classe.level.charAt(0)}{classe.name}
                             </div>
-                            
                             <div className={`flex items-center justify-center space-x-2 text-sm ${colors.text} opacity-80 mb-3`}>
                               <Users size={16} />
                               <span>{studentCount} élève{studentCount !== 1 ? 's' : ''}</span>
                             </div>
-                            
                             <div className={`text-sm ${colors.text} opacity-75`}>
                               Cliquer pour saisir les résultats
                             </div>
@@ -760,25 +544,331 @@ const ResultsEntrySupabase = () => {
     );
   };
 
-  // Vue détaillée d'une classe - AVEC SCROLL MAINTENU
-  const ClassDetailView = () => {
-    const colors = getLevelColors(selectedClass.level);
-    const stats = getCompletionStats();
-    
-    const filteredStudents = students.filter(student =>
-      `${student.first_name} ${student.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())
+  // ===================== SÉLECTEUR DE TEST (en haut) =====================
+  const TestSelector = () => {
+    // Regroupement par catégorie pour lisibilité
+    const byCategory = {};
+    tests.forEach(t => {
+      if (!byCategory[t.category]) byCategory[t.category] = [];
+      byCategory[t.category].push(t);
+    });
+
+    return (
+      <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
+        <div className="flex items-center space-x-2 mb-3">
+          <Target size={18} className="text-gray-500" />
+          <h3 className="font-semibold text-gray-700">Choisir le test à saisir</h3>
+        </div>
+        <div className="space-y-3">
+          {Object.entries(byCategory).map(([category, catTests]) => {
+            const catColors = getCategoryColors(category);
+            return (
+              <div key={category} className="flex flex-wrap items-center gap-2">
+                <span className={`text-xs font-bold px-2 py-1 rounded ${catColors.bg} ${catColors.text} border ${catColors.border} shrink-0`}>
+                  {category}
+                </span>
+                {catTests.map(test => {
+                  const { completed, total } = getTestCompletion(test.id);
+                  const isActive = selectedTest?.id === test.id;
+                  const isDone = total > 0 && completed === total;
+                  return (
+                    <button
+                      key={test.id}
+                      onClick={() => setSelectedTest(test)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                        isActive
+                          ? `${catColors.activeBg} text-white border-transparent shadow`
+                          : `bg-white ${catColors.border} ${catColors.text} hover:${catColors.bg}`
+                      }`}
+                    >
+                      <span>{test.name}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                        isActive ? 'bg-white/20' : isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {completed}/{total}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     );
+  };
+
+  // ===================== VIGNETTE ÉLÈVE (saisie) =====================
+  const StudentEntryCard = ({ student, index }) => {
+    const result = getResultStatus(student.id, selectedTest.id);
+    const draft = draftValues[student.id] ?? '';
+    const isSavingThis = savingStudentId === student.id;
+    const isInvalid = invalidStudentId === student.id;
+
+    let borderClass = 'border-gray-200';
+    if (result.status === 'result') borderClass = 'border-green-300 bg-green-50';
+    else if (result.status === 'absent') borderClass = 'border-red-300 bg-red-50';
+    else if (result.status === 'dispensed') borderClass = 'border-orange-300 bg-orange-50';
+    if (isInvalid) borderClass = 'border-red-500 ring-2 ring-red-300';
+
+    return (
+      <div className={`rounded-lg border-2 p-4 transition-all ${borderClass}`}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-600 text-xs font-bold flex items-center justify-center">
+            {index + 1}
+          </div>
+          {isSavingThis && <Loader className="animate-spin text-gray-400" size={14} />}
+          {!isSavingThis && result.status === 'result' && <CheckCircle className="text-green-500" size={18} />}
+          {!isSavingThis && result.status === 'absent' && <UserX className="text-red-500" size={18} />}
+          {!isSavingThis && result.status === 'dispensed' && <Ban className="text-orange-500" size={18} />}
+        </div>
+
+        <div className="text-center mb-3">
+          <div className="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white font-bold flex items-center justify-center mb-1">
+            {student.first_name?.charAt(0)}{student.last_name?.charAt(0)}
+          </div>
+          <div className="font-bold text-gray-800 text-sm leading-tight">{student.last_name}</div>
+          <div className="text-gray-600 text-sm leading-tight">{student.first_name}</div>
+        </div>
+
+        {result.status === 'absent' || result.status === 'dispensed' ? (
+          <div className="space-y-2">
+            <div className={`text-center py-1.5 rounded-full text-sm font-medium ${
+              result.status === 'absent' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+            }`}>
+              {result.status === 'absent' ? 'Absent' : 'Dispensé'}
+            </div>
+            <button
+              onClick={() => handleClearResult(student.id)}
+              className="w-full py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded hover:bg-gray-200 transition-colors"
+            >
+              Modifier
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="relative mb-2">
+              <input
+                ref={(el) => {
+                  if (el) inputRefs.current.set(student.id, el);
+                  else inputRefs.current.delete(student.id);
+                }}
+                type="text"
+                inputMode="decimal"
+                value={draft}
+                onChange={(e) => setDraftValues(prev => ({ ...prev, [student.id]: e.target.value }))}
+                onKeyDown={(e) => handleKeyDown(e, student.id)}
+                onBlur={() => handleBlurSave(student.id)}
+                placeholder={selectedTest.unit}
+                className="no-spinner w-full p-2 text-center border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none text-sm"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 pointer-events-none">
+                {selectedTest.unit}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleSetStatus(student.id, 'absent')}
+                className="flex-1 py-1.5 text-xs font-medium bg-red-50 text-red-700 border border-red-200 rounded hover:bg-red-100 transition-colors"
+              >
+                Absent
+              </button>
+              <button
+                onClick={() => handleSetStatus(student.id, 'dispensed')}
+                className="flex-1 py-1.5 text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200 rounded hover:bg-orange-100 transition-colors"
+              >
+                Dispensé
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // ===================== VUE : SAISIE PAR TEST =====================
+  const EntryView = () => {
+    const { completed, total } = selectedTest ? getTestCompletion(selectedTest.id) : { completed: 0, total: 0 };
+
+    return (
+      <div>
+        <TestSelector />
+
+        {!selectedTest ? (
+          <div className="bg-white rounded-lg shadow-sm p-12 text-center">
+            <Target className="mx-auto text-gray-300 mb-4" size={56} />
+            <h3 className="text-lg font-bold text-gray-700 mb-2">Sélectionnez un test ci-dessus</h3>
+            <p className="text-gray-500">Les vignettes de tous les élèves apparaîtront ensuite pour saisir directement leurs résultats.</p>
+          </div>
+        ) : (
+          <>
+            <div className="bg-white rounded-lg shadow-sm p-4 mb-6 flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                  <input
+                    type="text"
+                    placeholder="Filtrer un élève..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <span className="text-sm text-gray-500">
+                  {orderedFilteredStudents.length} élève{orderedFilteredStudents.length !== 1 ? 's' : ''} · triés par nom de famille
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-medium text-gray-600">
+                  {selectedTest.name} <span className="text-gray-400">({selectedTest.unit})</span>
+                </div>
+                <div className={`text-sm font-bold px-2 py-1 rounded-full ${
+                  completed === total ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                }`}>
+                  {completed}/{total}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 flex items-center gap-2">
+              <Activity className="text-blue-600 shrink-0" size={16} />
+              <p className="text-sm text-blue-700">
+                Tapez le résultat puis appuyez sur <kbd className="bg-blue-200 px-1 rounded">Entrée</kbd> pour valider et passer à l'élève suivant.
+              </p>
+            </div>
+
+            {orderedFilteredStudents.length === 0 ? (
+              <div className="bg-white rounded-lg shadow-sm p-12 text-center">
+                <Search className="mx-auto text-gray-400 mb-4" size={48} />
+                <p className="text-gray-500">Aucun élève ne correspond à votre recherche</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                {orderedFilteredStudents.map((student, index) => (
+                  <StudentEntryCard key={student.id} student={student} index={index} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // ===================== VUE : VUE D'ENSEMBLE (avec scroll) =====================
+  const OverviewView = () => {
+    const stats = getCompletionStats();
+    const filteredStudents = orderedFilteredStudents;
+
+    return (
+      <div>
+        <div className="bg-white rounded-lg shadow-sm p-4 mb-6 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <input
+                type="text"
+                placeholder="Rechercher un élève..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            <span className="text-sm font-medium text-gray-600">{stats.percentage}% complété ({stats.completed}/{stats.total})</span>
+          </div>
+          <button
+            onClick={cleanAllNullValues}
+            disabled={saving}
+            className="flex items-center gap-2 px-3 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 disabled:opacity-50 transition-colors text-sm"
+          >
+            <Trash2 size={14} />
+            <span>Nettoyer les "null"</span>
+          </button>
+        </div>
+
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 flex items-center gap-2">
+          <Activity className="text-blue-600 shrink-0" size={16} />
+          <p className="text-sm text-blue-700">
+            Vue de contrôle : repérez les cases grises (non renseignées), puis cliquez dessus pour ouvrir directement la saisie de cet élève pour ce test.
+          </p>
+        </div>
+
+        {filteredStudents.length === 0 ? (
+          <div className="bg-white rounded-lg shadow-sm p-12 text-center">
+            <Search className="mx-auto text-gray-400 mb-4" size={48} />
+            <p className="text-gray-500">Aucun élève ne correspond à votre recherche</p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+            <style>{`
+              .sticky-shadow-right { box-shadow: 2px 0 4px rgba(0,0,0,0.1); }
+              .sticky-shadow-bottom { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+              .sticky-corner { box-shadow: 2px 2px 4px rgba(0,0,0,0.1); }
+            `}</style>
+            <div className="overflow-auto max-h-[65vh]">
+              <table className="w-full">
+                <thead className="sticky top-0 z-20">
+                  <tr>
+                    <th className="p-3 text-left font-bold text-gray-800 border-r-2 border-b-2 border-gray-300 min-w-[180px] sticky left-0 z-30 bg-gray-100 sticky-corner">
+                      Élève
+                    </th>
+                    {tests.map(test => (
+                      <th key={test.id} className="p-2 text-center font-medium text-gray-700 border-r border-b-2 border-gray-300 min-w-[110px] bg-gray-100 sticky-shadow-bottom">
+                        <div className="text-xs font-bold">{test.name}</div>
+                        <div className="text-[10px] text-gray-500">({test.unit})</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredStudents.map(student => (
+                    <tr key={student.id} className="hover:bg-gray-50 border-b">
+                      <td className="p-3 border-r-2 border-gray-200 bg-gray-50 sticky left-0 z-10 sticky-shadow-right">
+                        <div className="font-bold text-gray-800 text-sm">{student.last_name}</div>
+                        <div className="text-xs text-gray-600">{student.first_name}</div>
+                      </td>
+                      {tests.map(test => {
+                        const result = getResultStatus(student.id, test.id);
+                        let content = '—', cls = 'text-gray-400 bg-gray-50';
+                        if (result.status === 'result') { content = `${result.value} ${test.unit}`; cls = 'text-green-800 bg-green-50'; }
+                        else if (result.status === 'absent') { content = 'ABS'; cls = 'text-red-800 bg-red-50'; }
+                        else if (result.status === 'dispensed') { content = 'DISP'; cls = 'text-orange-800 bg-orange-50'; }
+                        return (
+                          <td
+                            key={test.id}
+                            onClick={() => jumpToEntry(student, test)}
+                            className={`p-2 border border-gray-200 text-center text-xs cursor-pointer hover:opacity-75 transition-opacity ${cls}`}
+                            title="Cliquer pour saisir"
+                          >
+                            {content}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ===================== VUE : CLASSE SÉLECTIONNÉE =====================
+  const ClassWorkspace = () => {
+    const colors = getLevelColors(selectedClass.level);
 
     return (
       <div className="min-h-screen bg-gray-50">
-        {/* Header */}
         <div className={`${colors.accent} text-white shadow-lg`}>
           <div className="max-w-7xl mx-auto px-6 py-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center space-x-4">
                 <button
                   onClick={() => {
                     setSelectedClass(null);
+                    setSelectedTest(null);
                     setSearchTerm('');
                   }}
                   className="flex items-center space-x-2 px-3 py-2 bg-white bg-opacity-20 text-white rounded-lg hover:bg-opacity-30 transition-colors"
@@ -787,235 +877,58 @@ const ResultsEntrySupabase = () => {
                   <span>Retour aux classes</span>
                 </button>
                 <div className="flex items-center space-x-3">
-                  <BarChart3 size={32} />
+                  <BarChart3 size={28} />
                   <div>
-                  <h1 className="text-2xl font-bold">{selectedClass.level.charAt(0)}{selectedClass.name}</h1>
-                    <p className="text-sm opacity-90 flex items-center space-x-2">
-                      <Calendar size={14} />
+                    <h1 className="text-xl font-bold">{selectedClass.level.charAt(0)}{selectedClass.name}</h1>
+                    <p className="text-xs opacity-90 flex items-center gap-2">
+                      <Calendar size={12} />
                       <span>Année {selectedSchoolYear}</span>
-                      {selectedSchoolYear === currentSchoolYear && (
-                        <span className="text-xs bg-green-500 bg-opacity-80 px-2 py-1 rounded">
-                          Courante
-                        </span>
-                      )}
                     </p>
                   </div>
                 </div>
               </div>
-              <div className="flex items-center space-x-4">
-                <div className="text-right">
-                  <div className="text-lg font-bold">{stats.percentage}%</div>
-                  <div className="text-sm opacity-90">{stats.completed}/{stats.total} complétés</div>
+
+              <div className="flex items-center gap-2">
+                <div className="flex bg-white bg-opacity-20 rounded-lg p-1">
+                  <button
+                    onClick={() => setViewMode('entry')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      viewMode === 'entry' ? 'bg-white text-gray-800' : 'text-white'
+                    }`}
+                  >
+                    <LayoutGrid size={14} />
+                    <span>Saisie par test</span>
+                  </button>
+                  <button
+                    onClick={() => setViewMode('overview')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      viewMode === 'overview' ? 'bg-white text-gray-800' : 'text-white'
+                    }`}
+                  >
+                    <TableIcon size={14} />
+                    <span>Vue d'ensemble</span>
+                  </button>
                 </div>
-                
-                <button 
+                <button
                   onClick={refreshData}
-                  className="flex items-center space-x-2 px-4 py-2 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30"
+                  className="flex items-center space-x-2 px-3 py-2 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30 transition-colors"
+                  title="Actualiser"
                 >
                   <RefreshCw size={16} />
-                  <span>Actualiser</span>
                 </button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Contenu */}
         <div className="max-w-7xl mx-auto px-6 py-6">
-          {/* Barre de recherche et bouton nettoyage global */}
-          <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-            <div className="flex items-center space-x-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-                <input
-                  type="text"
-                  placeholder="Rechercher un élève..."
-                  value={searchTerm}
-                  onChange={handleSearchChange}
-                  onInput={handleSearchChange}
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck="false"
-                  className="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
-                />
-                {/* Bouton de reset de la recherche */}
-                {searchTerm && (
-                  <button
-                    onClick={clearSearch}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                    title="Effacer la recherche"
-                  >
-                    <X size={18} />
-                  </button>
-                )}
-              </div>
-              <div className={`px-4 py-3 ${colors.bg} ${colors.text} rounded-lg border ${colors.border} font-medium`}>
-                {filteredStudents.length} élève{filteredStudents.length !== 1 ? 's' : ''} • {tests.length} tests
-              </div>
-              {/* BOUTON NETTOYAGE GLOBAL */}
-              <button
-                onClick={cleanAllNullValues}
-                disabled={saving}
-                className="flex items-center space-x-2 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:bg-gray-400 transition-colors"
-              >
-                <Trash2 size={18} />
-                <span>Nettoyer tous les "null"</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Note explicative */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center space-x-2">
-              <Activity className="text-blue-600" size={16} />
-              <p className="text-sm text-blue-700">
-                <strong>Navigation rapide :</strong> Cliquez sur une cellule pour saisir. 
-                Utilisez <kbd className="bg-blue-200 px-1 rounded">Enter</kbd> pour valider, 
-                <kbd className="bg-blue-200 px-1 rounded">Tab</kbd> pour passer au suivant, 
-                <kbd className="bg-blue-200 px-1 rounded">Esc</kbd> pour annuler.
-                La position de scroll est conservée lors de la saisie.
-              </p>
-            </div>
-          </div>
-
-          {/* Tableau des résultats avec scroll maintenu */}
-          {filteredStudents.length === 0 ? (
-            <div className="bg-white rounded-lg shadow-sm p-12 text-center">
-              <Search className="mx-auto text-gray-400 mb-6" size={80} />
-              <h3 className="text-2xl font-bold text-gray-700 mb-4">Aucun résultat</h3>
-              <p className="text-gray-500 text-lg">Aucun élève ne correspond à votre recherche</p>
-            </div>
-          ) : (
-            <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-              {/* CSS personnalisé pour les colonnes et lignes figées */}
-              <style jsx>{`
-                .sticky-shadow-right {
-                  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
-                }
-                .sticky-shadow-bottom {
-                  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-                }
-                .sticky-corner {
-                  box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
-                }
-              `}</style>
-              <div 
-                ref={tableScrollRef}
-                className="overflow-auto max-h-[600px]"
-                style={{ scrollBehavior: 'auto' }} // Éviter le smooth scroll qui interfère
-              >
-                <table className="w-full">
-                  {/* En-tête figé */}
-                  <thead className="sticky top-0 z-20">
-                    <tr>
-                      {/* Cellule coin supérieur gauche - figée en haut et à gauche */}
-                      <th className={`p-4 text-left font-bold text-gray-800 border-r-2 border-b-2 border-gray-400 min-w-[200px] sticky left-0 z-40 ${colors.bg} sticky-corner`}>
-                        <div className="flex items-center space-x-2">
-                          <Users size={18} />
-                          <span>Élève</span>
-                        </div>
-                      </th>
-                      {/* Colonnes des tests - figées en haut seulement */}
-                      {tests.map(test => (
-                        <th key={test.id} className={`p-3 text-center font-medium text-gray-700 border-r border-b-2 border-gray-400 min-w-[120px] ${colors.bg} sticky-shadow-bottom`}>
-                          <div className="space-y-1">
-                            <div className="text-sm font-bold">{test.name}</div>
-                            <div className="text-xs text-gray-500">({test.unit})</div>
-                            <div className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                              {test.category}
-                            </div>
-                          </div>
-                        </th>
-                      ))}
-                      {/* Colonne progression - figée en haut */}
-                      <th className={`p-4 text-center font-medium text-gray-700 min-w-[100px] border-b-2 border-gray-400 ${colors.bg} sticky-shadow-bottom`}>
-                        <div className="flex items-center justify-center space-x-1">
-                          <TrendingUp size={16} />
-                          <span>Progression</span>
-                        </div>
-                      </th>
-                    </tr>
-                  </thead>
-                  
-                  <tbody>
-                    {filteredStudents.map((student, index) => {
-                      const completedTests = tests.filter(test => 
-                        getResultStatus(student.id, test.id).status !== 'empty'
-                      ).length;
-                      const progressPercentage = Math.round((completedTests / tests.length) * 100);
-                      
-                      return (
-                        <tr key={student.id} className="hover:bg-gray-50 border-b">
-                          {/* Cellule nom élève - figée à gauche */}
-                          <td className="p-4 border-r-2 border-gray-300 bg-gray-50 sticky left-0 z-10 sticky-shadow-right">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="font-bold text-gray-800 text-lg">
-                                  {student.last_name}
-                                </div>
-                                <div className="text-sm text-gray-600">
-                                  {student.first_name}
-                                </div>
-                              </div>
-                              {/* BOUTON DE NETTOYAGE INDIVIDUEL */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  cleanNullValues(student.id);
-                                }}
-                                disabled={saving}
-                                className="ml-2 p-1 text-orange-600 hover:text-orange-800 hover:bg-orange-100 rounded disabled:text-gray-400 transition-colors"
-                                title="Nettoyer les valeurs null de cet élève"
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
-                          </td>
-                          
-                          {/* Cellules des résultats - non figées */}
-                          {tests.map(test => (
-                            <ResultCell key={test.id} student={student} test={test} />
-                          ))}
-                          
-                          {/* Cellule progression - non figée */}
-                          <td className="p-4 text-center border-l border-gray-300">
-                            <div className="space-y-1">
-                              <div className={`text-sm font-bold ${
-                                progressPercentage >= 80 ? 'text-green-600' :
-                                progressPercentage >= 50 ? 'text-yellow-600' : 'text-red-600'
-                              }`}>
-                                {progressPercentage}%
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {completedTests}/{tests.length}
-                              </div>
-                              {/* Barre de progression mini */}
-                              <div className="w-full bg-gray-200 rounded-full h-1">
-                                <div
-                                  className={`h-1 rounded-full ${
-                                    progressPercentage >= 80 ? 'bg-green-500' :
-                                    progressPercentage >= 50 ? 'bg-yellow-500' : 'bg-red-500'
-                                  }`}
-                                  style={{ width: `${progressPercentage}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          {viewMode === 'entry' ? <EntryView /> : <OverviewView />}
         </div>
       </div>
     );
   };
 
-  // Gestion des erreurs et chargement
+  // ===================== RENDU GLOBAL =====================
   if (error) {
     return (
       <div className="container mx-auto px-4 py-6">
@@ -1049,45 +962,12 @@ const ResultsEntrySupabase = () => {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      {selectedClass ? (
-        <ClassDetailView />
-      ) : (
-        <ClassSelectionView />
-      )}
-      
-      {/* Légende (uniquement en vue détaillée) */}
-      {selectedClass && (
-        <div className="max-w-7xl mx-auto px-6 pb-6">
-          <div className="bg-white rounded-lg shadow-md p-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">Légende :</h3>
-            <div className="flex flex-wrap gap-4 text-xs">
-              <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 bg-green-100 border border-green-300 rounded"></div>
-                <span>Résultat saisi</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
-                <span>Absent</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 bg-orange-100 border border-orange-300 rounded"></div>
-                <span>Dispensé</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-4 h-4 bg-gray-100 border border-gray-300 rounded"></div>
-                <span>Non effectué</span>
-              </div>
-            </div>
-            <div className="mt-3 text-xs text-gray-500 flex items-center space-x-2">
-              <Target size={12} />
-              <span>
-                <strong>Saisie optimisée :</strong> Position maintenue lors de la validation • 
-                Navigation au clavier • Première ligne et colonne figées pour faciliter la saisie
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+      <style>{`
+        .no-spinner::-webkit-outer-spin-button,
+        .no-spinner::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .no-spinner[type=number] { -moz-appearance: textfield; }
+      `}</style>
+      {selectedClass ? <ClassWorkspace /> : <ClassSelectionView />}
     </div>
   );
 };
