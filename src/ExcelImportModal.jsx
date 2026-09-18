@@ -1,17 +1,20 @@
-// src/components/ExcelImportModal.jsx - VERSION CORRIGÉE AVEC TRAITEMENT DES DATES EXCEL
+// src/components/ExcelImportModal.jsx - VERSION AVEC MATCHING ROBUSTE (normalisation + fuzzy + date de naissance)
 import React, { useState, useRef } from 'react';
-import { 
-  Upload, 
-  X, 
-  FileSpreadsheet, 
-  Users, 
-  AlertTriangle, 
-  CheckCircle, 
-  Loader, 
+import {
+  Upload,
+  X,
+  FileSpreadsheet,
+  Users,
+  AlertTriangle,
+  CheckCircle,
+  Loader,
   Download,
   Eye,
   Save,
-  AlertCircle
+  AlertCircle,
+  Link2,
+  HelpCircle,
+  ArrowRight
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -21,80 +24,194 @@ import { supabase } from './lib/supabase.js';
 // Import du contexte année scolaire
 import { useSchoolYear } from './contexts/SchoolYearContext';
 
+// ============================================================================
+// OUTILS DE NORMALISATION / COMPARAISON DE NOMS
+// Objectif : reconnaître qu'un même élève est le même d'une année sur l'autre
+// même si l'orthographe saisie diffère légèrement (tirets, espaces, accents,
+// casse, voire une petite faute de frappe).
+// ============================================================================
+
+// Retire les accents (é -> e, ç -> c, etc.)
+const stripAccents = (str = '') =>
+  str.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+// Normalise un nom/prénom pour la comparaison :
+// - accents supprimés
+// - tirets, apostrophes, points -> espace
+// - espaces multiples -> un seul
+// - majuscules
+// Exemples : "Daviet-Gomes" / "DAVIET - GOMES" / "daviet   gomes" -> "DAVIET GOMES"
+const normalizeForMatch = (str = '') =>
+  stripAccents(str)
+    .toUpperCase()
+    .replace(/[-_'’.]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+// Distance de Levenshtein : nombre minimal de modifications (ajout/suppression/
+// substitution d'une lettre) pour passer d'une chaîne à l'autre.
+// Sert à repérer les vraies fautes de frappe (ex: "BICGEL" vs "BIGGEL" = 1).
+const levenshtein = (a = '', b = '') => {
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+
+  const prevRow = Array.from({ length: n + 1 }, (_, j) => j);
+
+  for (let i = 1; i <= m; i++) {
+    let prevDiag = prevRow[0];
+    prevRow[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = prevRow[j];
+      prevRow[j] = a[i - 1] === b[j - 1]
+        ? prevDiag
+        : 1 + Math.min(prevDiag, prevRow[j], prevRow[j - 1]);
+      prevDiag = tmp;
+    }
+  }
+  return prevRow[n];
+};
+
+// Formatte une date YYYY-MM-DD en DD/MM/YYYY pour l'affichage
+const formatDateFR = (isoDate) => {
+  if (!isoDate) return 'date inconnue';
+  const parts = isoDate.split('-');
+  if (parts.length !== 3) return isoDate;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+};
+
+// Recherche, parmi les élèves existants (toutes années/classes confondues),
+// les candidats correspondant à un prénom/nom importé.
+// Retourne { type: 'exact' | 'fuzzy' | 'none', candidates: [...] }
+const findCandidatesForRow = (firstName, lastName, studentPool) => {
+  const normFirst = normalizeForMatch(firstName);
+  const normLast = normalizeForMatch(lastName);
+
+  // On ne garde qu'une fiche par élève réel (regroupée par permanent_id),
+  // en conservant la plus récente (le pool est trié par school_year décroissant).
+  const byPermanentId = new Map();
+  studentPool.forEach(s => {
+    if (!s.permanent_id) return;
+    if (!byPermanentId.has(s.permanent_id)) byPermanentId.set(s.permanent_id, s);
+  });
+  const pool = Array.from(byPermanentId.values());
+
+  // 1) Correspondance exacte (après normalisation)
+  const exact = pool.filter(s =>
+    normalizeForMatch(s.first_name) === normFirst &&
+    normalizeForMatch(s.last_name) === normLast
+  );
+  if (exact.length > 0) return { type: 'exact', candidates: exact };
+
+  // 2) Correspondance floue : même prénom + nom très proche, OU même nom + prénom très proche.
+  //    Seuil volontairement strict pour éviter les faux positifs (ex: deux prénoms différents).
+  const fuzzy = pool
+    .map(s => {
+      const sf = normalizeForMatch(s.first_name);
+      const sl = normalizeForMatch(s.last_name);
+      const firstDist = levenshtein(sf, normFirst);
+      const lastDist = levenshtein(sl, normLast);
+      const isCandidate =
+        (sf === normFirst && lastDist > 0 && lastDist <= 2) ||
+        (sl === normLast && firstDist > 0 && firstDist <= 1);
+      return isCandidate ? { student: s, score: firstDist + lastDist } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.score - b.score)
+    .map(x => x.student);
+
+  if (fuzzy.length > 0) return { type: 'fuzzy', candidates: fuzzy.slice(0, 3) };
+
+  return { type: 'none', candidates: [] };
+};
+
 const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, onStudentsAdded }) => {
   // Récupération de l'année scolaire sélectionnée
   const { selectedSchoolYear } = useSchoolYear();
-  
+
   const [file, setFile] = useState(null);
   const [excelData, setExcelData] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [mapping, setMapping] = useState({
     firstName: '',
-    lastName: '', 
+    lastName: '',
     birthDate: '',
     gender: ''
   });
-  const [step, setStep] = useState(1); // 1: Upload, 2: Preview/Mapping, 3: Import
+  // step 1: Upload | 2: Mapping/aperçu | 3: Vérification des correspondances | 4: Résultats
+  const [step, setStep] = useState(1);
   const [importing, setImporting] = useState(false);
-  const [importResults, setImportResults] = useState({ success: 0, errors: [], duplicates: [] });
+  const [importResults, setImportResults] = useState({ success: 0, linked: 0, manual: 0, errors: [], duplicates: [] });
   const [showPreview, setShowPreview] = useState(false);
-  
+
+  // Pool de tous les élèves existants (toutes années/classes), chargé une seule fois
+  const [studentPool, setStudentPool] = useState([]);
+  const [loadingPool, setLoadingPool] = useState(false);
+
+  // Résultat du matching, un objet par ligne Excel à importer
+  const [matches, setMatches] = useState([]);
+  const [buildingMatches, setBuildingMatches] = useState(false);
+
   const fileInputRef = useRef(null);
 
   // ========== FONCTION DE TRAITEMENT DES DATES EXCEL ==========
   const parseExcelDate = (dateValue) => {
     if (!dateValue) return null;
-    
-    // Si c'est déjà null ou undefined
     if (dateValue === null || dateValue === undefined || dateValue === '') return null;
-    
+
     let date;
-    
-    // Si c'est un nombre (format série Excel)
+
     if (typeof dateValue === 'number') {
-      // Les dates Excel commencent le 1/1/1900, mais JavaScript commence le 1/1/1970
-      // Formule de conversion: (dateValue - 25569) * 86400 * 1000
+      // Les dates Excel commencent le 1/1/1900, JavaScript le 1/1/1970
       date = new Date((dateValue - 25569) * 86400 * 1000);
-    }
-    // Si c'est déjà un objet Date
-    else if (dateValue instanceof Date) {
+    } else if (dateValue instanceof Date) {
       date = dateValue;
-    }
-    // Si c'est une chaîne de caractères
-    else if (typeof dateValue === 'string') {
+    } else if (typeof dateValue === 'string') {
       const trimmedValue = dateValue.trim();
-      
-      // Vérifier différents formats
+
       if (trimmedValue.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
-        // Format DD/MM/YYYY
         const parts = trimmedValue.split('/');
-        date = new Date(parts[2], parts[1] - 1, parts[0]); // Année, Mois-1, Jour
+        date = new Date(parts[2], parts[1] - 1, parts[0]);
       } else if (trimmedValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        // Format YYYY-MM-DD
         date = new Date(trimmedValue);
       } else if (trimmedValue.match(/^\d{2}-\d{2}-\d{4}$/)) {
-        // Format DD-MM-YYYY
         const parts = trimmedValue.split('-');
         date = new Date(parts[2], parts[1] - 1, parts[0]);
       } else if (trimmedValue.match(/^\d{2}\.\d{2}\.\d{4}$/)) {
-        // Format DD.MM.YYYY
         const parts = trimmedValue.split('.');
         date = new Date(parts[2], parts[1] - 1, parts[0]);
       } else {
-        // Essayer la conversion directe
         date = new Date(trimmedValue);
       }
     }
-    
-    // Vérifier si la date est valide et raisonnable (entre 1900 et 2030)
+
     if (date && !isNaN(date.getTime())) {
       const year = date.getFullYear();
       if (year >= 1900 && year <= 2030) {
-        return date.toISOString().split('T')[0]; // Format YYYY-MM-DD
+        return date.toISOString().split('T')[0];
       }
     }
-    
+
     return null;
+  };
+
+  // Charge tous les élèves (toutes années/classes) pour servir de base au matching
+  const loadStudentPool = async () => {
+    setLoadingPool(true);
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .select('id, first_name, last_name, birth_date, permanent_id, class_id, school_year')
+        .order('school_year', { ascending: false });
+
+      if (!error && data) setStudentPool(data);
+      else setStudentPool([]);
+    } catch {
+      setStudentPool([]);
+    } finally {
+      setLoadingPool(false);
+    }
   };
 
   // Reset modal when opening
@@ -106,8 +223,10 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
       setMapping({ firstName: '', lastName: '', birthDate: '', gender: '' });
       setStep(1);
       setImporting(false);
-      setImportResults({ success: 0, errors: [], duplicates: [] });
+      setImportResults({ success: 0, linked: 0, manual: 0, errors: [], duplicates: [] });
       setShowPreview(false);
+      setMatches([]);
+      loadStudentPool();
     }
   }, [isOpen]);
 
@@ -115,12 +234,10 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
   const handleFileSelect = (event) => {
     const selectedFile = event.target.files[0];
     if (selectedFile) {
-      // Vérifier le type de fichier
       if (!selectedFile.name.match(/\.(xlsx|xls|csv)$/i)) {
         alert('Veuillez sélectionner un fichier Excel (.xlsx, .xls) ou CSV');
         return;
       }
-      
       setFile(selectedFile);
       parseExcelFile(selectedFile);
     }
@@ -130,50 +247,45 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
   const parseExcelFile = async (file) => {
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { 
+      const workbook = XLSX.read(arrayBuffer, {
         type: 'array',
-        cellDates: true, // Important: demander à XLSX de convertir les dates
-        dateNF: 'dd/mm/yyyy' // Format de date préféré
-      });
-      
-      // Prendre la première feuille
-      const firstSheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[firstSheetName];
-      
-      // Convertir en JSON avec les dates converties
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-        header: 1,
-        raw: false, // Convertir les valeurs en chaînes
+        cellDates: true,
         dateNF: 'dd/mm/yyyy'
       });
-      
+
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        raw: false,
+        dateNF: 'dd/mm/yyyy'
+      });
+
       if (jsonData.length < 2) {
         alert('Le fichier doit contenir au moins une ligne d\'en-têtes et une ligne de données');
         return;
       }
-      
-      // Extraire les en-têtes (première ligne)
+
       const fileHeaders = jsonData[0].filter(header => header && header.toString().trim() !== '');
-      
-      // Extraire les données (lignes suivantes)
+
       const data = jsonData.slice(1)
-        .filter(row => row.some(cell => cell && cell.toString().trim() !== '')) // Filtrer les lignes vides
+        .filter(row => row.some(cell => cell && cell.toString().trim() !== ''))
         .map((row, index) => {
           const rowData = {};
           fileHeaders.forEach((header, colIndex) => {
             rowData[header] = row[colIndex] || '';
           });
-          rowData._rowNumber = index + 2; // Numéro de ligne dans Excel (commence à 2)
+          rowData._rowNumber = index + 2;
           return rowData;
         });
-      
+
       setHeaders(fileHeaders);
       setExcelData(data);
       setStep(2);
-      
-      // Auto-mapping intelligent
+
       autoMapColumns(fileHeaders);
-      
+
     } catch (error) {
       console.error('Erreur lors de la lecture du fichier:', error);
       alert('Erreur lors de la lecture du fichier Excel');
@@ -183,60 +295,46 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
   // Mapping automatique des colonnes
   const autoMapColumns = (fileHeaders) => {
     const newMapping = { firstName: '', lastName: '', birthDate: '', gender: '' };
-    
+
     fileHeaders.forEach(header => {
       const lowerHeader = header.toLowerCase();
-      
-      // Mapping intelligent basé sur les noms courants
-      if (lowerHeader.includes('prénom') || lowerHeader.includes('prenom') || 
+
+      if (lowerHeader.includes('prénom') || lowerHeader.includes('prenom') ||
           lowerHeader.includes('firstname') || lowerHeader === 'first_name') {
         newMapping.firstName = header;
-      } else if (lowerHeader.includes('nom') && !lowerHeader.includes('prénom') || 
+      } else if (lowerHeader.includes('nom') && !lowerHeader.includes('prénom') ||
                  lowerHeader.includes('lastname') || lowerHeader === 'last_name') {
         newMapping.lastName = header;
-      } else if (lowerHeader.includes('naissance') || lowerHeader.includes('birth') || 
+      } else if (lowerHeader.includes('naissance') || lowerHeader.includes('birth') ||
                  lowerHeader.includes('date')) {
         newMapping.birthDate = header;
-      } else if (lowerHeader.includes('sexe') || lowerHeader.includes('genre') || 
+      } else if (lowerHeader.includes('sexe') || lowerHeader.includes('genre') ||
                  lowerHeader.includes('gender')) {
         newMapping.gender = header;
       }
     });
-    
+
     setMapping(newMapping);
   };
 
-  // Valider les données avant import - VERSION CORRIGÉE
+  // Valider les données de base avant de passer à la vérification des correspondances
   const validateData = () => {
     const errors = [];
-    const duplicates = [];
-    
+
     if (!mapping.firstName || !mapping.lastName) {
       errors.push('Le mapping du prénom et du nom est obligatoire');
-      return { isValid: false, errors, duplicates };
+      return { isValid: false, errors };
     }
-    
-    excelData.forEach((row, index) => {
+
+    excelData.forEach((row) => {
       const firstName = row[mapping.firstName]?.toString().trim();
       const lastName = row[mapping.lastName]?.toString().trim();
-      
-      // Vérifier les champs obligatoires
+
       if (!firstName || !lastName) {
         errors.push(`Ligne ${row._rowNumber}: Prénom et nom obligatoires`);
         return;
       }
-      
-      // Vérifier les doublons avec les élèves existants
-      const duplicate = existingStudents.find(student => 
-        student.first_name.toLowerCase() === firstName.toLowerCase() && 
-        student.last_name.toLowerCase() === lastName.toLowerCase()
-      );
-      
-      if (duplicate) {
-        duplicates.push(`${firstName} ${lastName} (ligne ${row._rowNumber})`);
-      }
-      
-      // NOUVELLE VALIDATION pour la date de naissance avec parseExcelDate
+
       if (mapping.birthDate && row[mapping.birthDate]) {
         const parsedDate = parseExcelDate(row[mapping.birthDate]);
         if (!parsedDate) {
@@ -244,133 +342,139 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
         }
       }
     });
-    
-    return { 
-      isValid: errors.length === 0, 
-      errors, 
-      duplicates 
-    };
+
+    return { isValid: errors.length === 0, errors };
   };
 
-  // Recherche d'un élève existant dans toutes les années pour récupérer son permanent_id
-  const findExistingPermanentId = async (firstName, lastName, birthDate) => {
-    try {
-      let query = supabase
-        .from('students')
-        .select('permanent_id')
-        .ilike('first_name', firstName.trim())
-        .ilike('last_name', lastName.trim().toUpperCase());
+  // ============================================================================
+  // ÉTAPE 3 : construction du tableau de correspondances
+  // Pour chaque ligne du fichier importé, on détermine :
+  //  - 'duplicate'   : déjà présent tel quel dans CETTE classe/année -> ignoré
+  //  - 'new'         : aucun élève correspondant trouvé -> nouvel élève
+  //  - 'auto'        : correspondance exacte unique -> lien automatique
+  //  - 'auto-date'   : plusieurs homonymes exacts, départagés par la date de naissance
+  //  - 'ambiguous'   : plusieurs homonymes exacts, impossible à départager -> choix manuel
+  //  - 'suggested'   : ressemblance forte (faute de frappe probable) -> à confirmer
+  // ============================================================================
+  const buildMatches = () => {
+    setBuildingMatches(true);
 
-      // Si on a une date de naissance, on l'utilise pour affiner la recherche
-      if (birthDate) {
-        query = query.eq('birth_date', birthDate);
+    const rows = excelData
+      .map(row => {
+        const firstName = row[mapping.firstName]?.toString().trim() || '';
+        const lastName = row[mapping.lastName]?.toString().trim() || '';
+        const birthDate = mapping.birthDate ? parseExcelDate(row[mapping.birthDate]) : null;
+        return { row, firstName, lastName, birthDate };
+      })
+      .filter(r => r.firstName && r.lastName);
+
+    const results = rows.map(({ row, firstName, lastName, birthDate }) => {
+      // Doublon strict : déjà présent dans la classe/année cible
+      const alreadyInClass = existingStudents.some(s =>
+        normalizeForMatch(s.first_name) === normalizeForMatch(firstName) &&
+        normalizeForMatch(s.last_name) === normalizeForMatch(lastName)
+      );
+      if (alreadyInClass) {
+        return { row, firstName, lastName, birthDate, status: 'duplicate', chosenPermanentId: null, candidates: [] };
       }
 
-      const { data, error } = await query.limit(1);
+      const { type, candidates } = findCandidatesForRow(firstName, lastName, studentPool);
 
-      if (error || !data || data.length === 0) return null;
-      return data[0].permanent_id;
-    } catch {
-      return null;
-    }
-  };
+      if (type === 'none') {
+        return { row, firstName, lastName, birthDate, status: 'new', chosenPermanentId: null, candidates: [] };
+      }
 
-  // Importer les élèves - VERSION AVEC SUIVI MULTI-ANNEES (permanent_id)
-  const importStudents = async () => {
-    const validation = validateData();
-    
-    if (!validation.isValid) {
-      setImportResults({ success: 0, errors: validation.errors, duplicates: validation.duplicates });
-      return;
-    }
-    
-    setImporting(true);
-    setStep(3);
-    
-    const rowsToImport = excelData.filter(row => {
-      const firstName = row[mapping.firstName]?.toString().trim();
-      const lastName = row[mapping.lastName]?.toString().trim();
-      if (!firstName || !lastName) return false;
-      const isDuplicate = existingStudents.some(student => 
-        student.first_name.toLowerCase() === firstName.toLowerCase() && 
-        student.last_name.toLowerCase() === lastName.toLowerCase()
-      );
-      return !isDuplicate;
+      if (type === 'exact') {
+        if (candidates.length === 1) {
+          return { row, firstName, lastName, birthDate, status: 'auto', chosenPermanentId: candidates[0].permanent_id, candidates };
+        }
+        // Homonymes exacts (même nom/prénom normalisés) : la date de naissance arbitre
+        if (birthDate) {
+          const byDate = candidates.filter(c => c.birth_date === birthDate);
+          if (byDate.length === 1) {
+            return { row, firstName, lastName, birthDate, status: 'auto-date', chosenPermanentId: byDate[0].permanent_id, candidates };
+          }
+        }
+        return { row, firstName, lastName, birthDate, status: 'ambiguous', chosenPermanentId: null, candidates };
+      }
+
+      // type === 'fuzzy' : jamais de lien automatique, toujours une confirmation humaine
+      return { row, firstName, lastName, birthDate, status: 'suggested', chosenPermanentId: null, candidates };
     });
 
-    try {
-      let successCount = 0;
-      let linkedCount = 0;
-      const errors = [];
-      
-      for (const row of rowsToImport) {
-        try {
-          const firstName = row[mapping.firstName]?.toString().trim();
-          const lastName = row[mapping.lastName]?.toString().trim().toUpperCase();
+    setMatches(results);
+    setBuildingMatches(false);
+    setStep(3);
+  };
 
-          // Construire les données de base
-          const studentData = {
-            first_name: firstName,
-            last_name: lastName,
-            class_id: selectedClass.id,
-            school_year: selectedSchoolYear
-          };
+  // Met à jour le choix de l'utilisateur pour une ligne ambiguë/suggérée
+  const setMatchChoice = (index, permanentId) => {
+    setMatches(prev => prev.map((m, i) =>
+      i === index ? { ...m, chosenPermanentId: permanentId || null } : m
+    ));
+  };
 
-          // Traitement date de naissance
-          let parsedBirthDate = null;
-          if (mapping.birthDate && row[mapping.birthDate]) {
-            parsedBirthDate = parseExcelDate(row[mapping.birthDate]);
-            if (parsedBirthDate) studentData.birth_date = parsedBirthDate;
-          }
+  // ============================================================================
+  // ÉTAPE 4 : import effectif, en s'appuyant sur les décisions prises à l'étape 3
+  // ============================================================================
+  const importStudents = async () => {
+    setImporting(true);
+    setStep(4);
 
-          // Genre
-          if (mapping.gender && row[mapping.gender]) {
-            const gender = row[mapping.gender]?.toString().trim().toUpperCase();
-            if (['M', 'MASCULIN', 'GARCON', 'GARÇON'].includes(gender)) studentData.gender = 'M';
-            else if (['F', 'FEMININ', 'FÉMININ', 'FILLE'].includes(gender)) studentData.gender = 'F';
-          }
+    let successCount = 0;
+    let linkedCount = 0;
+    let manualCount = 0;
+    const errors = [];
+    const skipped = matches.filter(m => m.status === 'duplicate').map(m => `${m.firstName} ${m.lastName}`);
 
-          // ✨ CLEF DU SUIVI MULTI-ANNEES :
-          // Chercher si cet élève existe déjà dans une autre année pour récupérer son permanent_id
-          const existingPermanentId = await findExistingPermanentId(firstName, lastName, parsedBirthDate);
-          if (existingPermanentId) {
-            studentData.permanent_id = existingPermanentId;
-            linkedCount++;
-          }
-          // Sinon, Supabase génère automatiquement un nouveau permanent_id (DEFAULT gen_random_uuid())
+    for (const m of matches) {
+      if (m.status === 'duplicate') continue;
 
-          const { error } = await supabase.from('students').insert([studentData]);
-          
-          if (error) {
-            errors.push(`${firstName} ${lastName}: ${error.message}`);
-          } else {
-            successCount++;
-          }
-        } catch (err) {
-          errors.push(`Erreur: ${err.message}`);
+      try {
+        const studentData = {
+          first_name: m.firstName,
+          last_name: m.lastName.toUpperCase(),
+          class_id: selectedClass.id,
+          school_year: selectedSchoolYear
+        };
+
+        if (m.birthDate) studentData.birth_date = m.birthDate;
+
+        if (mapping.gender && m.row[mapping.gender]) {
+          const gender = m.row[mapping.gender].toString().trim().toUpperCase();
+          if (['M', 'MASCULIN', 'GARCON', 'GARÇON'].includes(gender)) studentData.gender = 'M';
+          else if (['F', 'FEMININ', 'FÉMININ', 'FILLE'].includes(gender)) studentData.gender = 'F';
         }
+
+        if (m.chosenPermanentId) {
+          studentData.permanent_id = m.chosenPermanentId;
+          linkedCount++;
+          if (m.status === 'ambiguous' || m.status === 'suggested') manualCount++;
+        }
+        // Sinon, Supabase génère automatiquement un nouveau permanent_id (DEFAULT gen_random_uuid())
+
+        const { error } = await supabase.from('students').insert([studentData]);
+
+        if (error) {
+          errors.push(`${m.firstName} ${m.lastName}: ${error.message}`);
+        } else {
+          successCount++;
+        }
+      } catch (err) {
+        errors.push(`${m.firstName} ${m.lastName}: ${err.message}`);
       }
-      
-      setImportResults({ 
-        success: successCount,
-        linked: linkedCount,
-        errors, 
-        duplicates: validation.duplicates 
-      });
-      
-      if (successCount > 0) onStudentsAdded();
-      
-    } catch (error) {
-      console.error('Erreur lors de l\'import:', error);
-      setImportResults({ 
-        success: 0,
-        linked: 0,
-        errors: ['Erreur générale: ' + error.message], 
-        duplicates: validation.duplicates 
-      });
-    } finally {
-      setImporting(false);
     }
+
+    setImportResults({
+      success: successCount,
+      linked: linkedCount,
+      manual: manualCount,
+      errors,
+      duplicates: skipped
+    });
+
+    if (successCount > 0) onStudentsAdded();
+    setImporting(false);
   };
 
   // Télécharger un modèle Excel avec dates correctement formatées
@@ -382,40 +486,44 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
       ['Pierre', 'DURAND', '08/12/2010', 'M'],
       ['Sophie', 'BERNARD', '14/01/2011', 'F']
     ];
-    
+
     const ws = XLSX.utils.aoa_to_sheet(templateData);
-    
-    // Formater la colonne des dates
-    const dateCol = 'C'; // Colonne Date de Naissance
+    const dateCol = 'C';
     const range = XLSX.utils.decode_range(ws['!ref']);
-    
-    // Appliquer le format de date aux cellules
+
     for (let row = 2; row <= range.e.r + 1; row++) {
       const cellAddress = dateCol + row;
       if (ws[cellAddress]) {
-        ws[cellAddress].t = 'd'; // Type date
-        ws[cellAddress].z = 'dd/mm/yyyy'; // Format d'affichage
+        ws[cellAddress].t = 'd';
+        ws[cellAddress].z = 'dd/mm/yyyy';
       }
     }
-    
+
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Modèle Élèves');
     XLSX.writeFile(wb, `Modele_Import_Eleves_${selectedClass?.name || 'Classe'}.xlsx`);
   };
 
-  // Fonction helper pour l'aperçu des dates
   const formatDateForPreview = (dateValue) => {
     if (!dateValue) return '-';
     const parsedDate = parseExcelDate(dateValue);
-    if (parsedDate) {
-      // Convertir YYYY-MM-DD en DD/MM/YYYY pour l'affichage
-      const parts = parsedDate.split('-');
-      return `${parts[2]}/${parts[1]}/${parts[0]}`;
-    }
+    if (parsedDate) return formatDateFR(parsedDate);
     return dateValue.toString() + ' (invalide)';
   };
 
   if (!isOpen) return null;
+
+  const validation = step === 2 ? validateData() : { isValid: true, errors: [] };
+
+  // Compteurs pour le résumé de l'étape 3
+  const summary = {
+    new: matches.filter(m => m.status === 'new').length,
+    auto: matches.filter(m => m.status === 'auto' || m.status === 'auto-date').length,
+    ambiguous: matches.filter(m => m.status === 'ambiguous').length,
+    suggested: matches.filter(m => m.status === 'suggested').length,
+    duplicate: matches.filter(m => m.status === 'duplicate').length,
+  };
+  const needsAttention = summary.ambiguous + summary.suggested;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -433,10 +541,7 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
             <X size={20} />
           </button>
         </div>
@@ -447,23 +552,16 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
             <div className="space-y-6">
               <div className="text-center">
                 <h3 className="text-lg font-semibold mb-2">Sélectionnez votre fichier Excel</h3>
-                <p className="text-gray-600 mb-6">
-                  Formats supportés: .xlsx, .xls, .csv
-                </p>
+                <p className="text-gray-600 mb-6">Formats supportés: .xlsx, .xls, .csv</p>
               </div>
 
-              {/* Zone de téléchargement */}
               <div
                 onClick={() => fileInputRef.current?.click()}
                 className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition-colors"
               >
                 <Upload className="mx-auto text-gray-400 mb-4" size={48} />
-                <p className="text-lg font-medium text-gray-700 mb-2">
-                  Cliquez pour sélectionner un fichier
-                </p>
-                <p className="text-sm text-gray-500">
-                  ou glissez-déposez votre fichier ici
-                </p>
+                <p className="text-lg font-medium text-gray-700 mb-2">Cliquez pour sélectionner un fichier</p>
+                <p className="text-sm text-gray-500">ou glissez-déposez votre fichier ici</p>
               </div>
 
               <input
@@ -474,7 +572,6 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                 className="hidden"
               />
 
-              {/* Bouton modèle */}
               <div className="text-center">
                 <button
                   onClick={downloadTemplate}
@@ -485,25 +582,26 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                 </button>
               </div>
 
-              {/* Information sur les colonnes attendues */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <h4 className="font-semibold text-blue-800 mb-2">Colonnes attendues :</h4>
                 <ul className="text-sm text-blue-700 space-y-1">
                   <li>• <strong>Prénom</strong> (obligatoire)</li>
                   <li>• <strong>Nom</strong> (obligatoire)</li>
-                  <li>• <strong>Date de Naissance</strong> (optionnel, format JJ/MM/AAAA recommandé)</li>
+                  <li>• <strong>Date de Naissance</strong> (recommandé — permet de départager les homonymes)</li>
                   <li>• <strong>Sexe</strong> (optionnel, M/F ou Masculin/Féminin)</li>
                 </ul>
               </div>
 
-              {/* Information spéciale sur les dates */}
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <h4 className="font-semibold text-green-800 mb-2">Pour les dates de naissance :</h4>
-                <ul className="text-sm text-green-700 space-y-1">
-                  <li>• <strong>Recommandé :</strong> Formater les cellules en "Date" dans Excel</li>
-                  <li>• <strong>Format :</strong> JJ/MM/AAAA (ex: 15/03/2010)</li>
-                  <li>• <strong>Acceptés :</strong> DD/MM/YYYY, YYYY-MM-DD, DD-MM-YYYY, DD.MM.YYYY</li>
-                </ul>
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                <h4 className="font-semibold text-indigo-800 mb-2 flex items-center space-x-2">
+                  <Link2 size={16} />
+                  <span>Reconnaissance automatique des élèves</span>
+                </h4>
+                <p className="text-sm text-indigo-700">
+                  À l'import, chaque élève est comparé à la base existante (accents, tirets et espaces
+                  ignorés) pour relier automatiquement son historique. Les cas incertains (fautes de frappe,
+                  homonymes) vous seront présentés pour validation avant l'import définitif.
+                </p>
               </div>
             </div>
           )}
@@ -519,14 +617,13 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                 </div>
               </div>
 
-              {/* Mapping des colonnes */}
               <div className="bg-gray-50 rounded-lg p-4">
                 <h4 className="font-medium mb-4">Correspondance des colonnes :</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium mb-1">Prénom *</label>
-                    <select 
-                      value={mapping.firstName} 
+                    <select
+                      value={mapping.firstName}
                       onChange={(e) => setMapping(prev => ({ ...prev, firstName: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                     >
@@ -536,11 +633,11 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                       ))}
                     </select>
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium mb-1">Nom *</label>
-                    <select 
-                      value={mapping.lastName} 
+                    <select
+                      value={mapping.lastName}
                       onChange={(e) => setMapping(prev => ({ ...prev, lastName: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                     >
@@ -550,11 +647,13 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                       ))}
                     </select>
                   </div>
-                  
+
                   <div>
-                    <label className="block text-sm font-medium mb-1">Date de Naissance</label>
-                    <select 
-                      value={mapping.birthDate} 
+                    <label className="block text-sm font-medium mb-1">
+                      Date de Naissance <span className="text-gray-400 font-normal">(recommandé)</span>
+                    </label>
+                    <select
+                      value={mapping.birthDate}
                       onChange={(e) => setMapping(prev => ({ ...prev, birthDate: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                     >
@@ -564,11 +663,11 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                       ))}
                     </select>
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium mb-1">Sexe</label>
-                    <select 
-                      value={mapping.gender} 
+                    <select
+                      value={mapping.gender}
                       onChange={(e) => setMapping(prev => ({ ...prev, gender: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                     >
@@ -579,9 +678,14 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                     </select>
                   </div>
                 </div>
+                {!mapping.birthDate && (
+                  <p className="text-xs text-amber-600 mt-3 flex items-start space-x-1">
+                    <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+                    <span>Sans date de naissance, deux élèves portant le même nom (homonymes) ne pourront pas être départagés automatiquement.</span>
+                  </p>
+                )}
               </div>
 
-              {/* Bouton aperçu */}
               <div className="text-center">
                 <button
                   onClick={() => setShowPreview(!showPreview)}
@@ -592,7 +696,6 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                 </button>
               </div>
 
-              {/* Aperçu des données avec dates formatées */}
               {showPreview && (
                 <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                   <div className="bg-gray-50 px-4 py-2 border-b">
@@ -632,69 +735,146 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                 </div>
               )}
 
-              {/* Validation et avertissements */}
-              {(() => {
-                const validation = validateData();
-                return (
-                  <div className="space-y-3">
-                    {/* Erreurs */}
-                    {validation.errors.length > 0 && (
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <AlertCircle className="text-red-500" size={16} />
-                          <h4 className="font-medium text-red-700">Erreurs détectées :</h4>
-                        </div>
-                        <ul className="text-sm text-red-600 space-y-1">
-                          {validation.errors.map((error, index) => (
-                            <li key={index}>• {error}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {/* Doublons */}
-                    {validation.duplicates.length > 0 && (
-                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <AlertTriangle className="text-yellow-500" size={16} />
-                          <h4 className="font-medium text-yellow-700">
-                            Doublons détectés ({validation.duplicates.length}) :
-                          </h4>
-                        </div>
-                        <p className="text-sm text-yellow-600 mb-2">Ces élèves existent déjà et seront ignorés :</p>
-                        <ul className="text-sm text-yellow-600 space-y-1 max-h-32 overflow-y-auto">
-                          {validation.duplicates.map((duplicate, index) => (
-                            <li key={index}>• {duplicate}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {/* Succès prévisionnel */}
-                    {validation.isValid && (
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                        <div className="flex items-center space-x-2">
-                          <CheckCircle className="text-green-500" size={16} />
-                          <span className="font-medium text-green-700">
-                            Prêt à importer {excelData.length - validation.duplicates.length} nouvel{excelData.length - validation.duplicates.length > 1 ? 's' : ''} élève{excelData.length - validation.duplicates.length > 1 ? 's' : ''} !
-                          </span>
-                        </div>
-                      </div>
-                    )}
+              {/* Erreurs bloquantes uniquement (les correspondances se règlent à l'étape suivante) */}
+              {validation.errors.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <AlertCircle className="text-red-500" size={16} />
+                    <h4 className="font-medium text-red-700">Erreurs détectées :</h4>
                   </div>
-                );
-              })()}
+                  <ul className="text-sm text-red-600 space-y-1">
+                    {validation.errors.map((error, index) => (
+                      <li key={index}>• {error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {validation.isValid && loadingPool && (
+                <div className="flex items-center justify-center space-x-2 text-gray-500 text-sm">
+                  <Loader className="animate-spin" size={16} />
+                  <span>Chargement de la base élèves pour la reconnaissance...</span>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Étape 3: Résultats de l'import */}
+          {/* Étape 3: Vérification des correspondances */}
           {step === 3 && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Vérification des correspondances</h3>
+                <span className="text-sm text-gray-600">{matches.length} élève{matches.length > 1 ? 's' : ''} analysé{matches.length > 1 ? 's' : ''}</span>
+              </div>
+
+              {/* Résumé */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                  <div className="text-xl font-bold text-blue-600">{summary.new}</div>
+                  <div className="text-xs text-blue-700">Nouveaux élèves</div>
+                </div>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                  <div className="text-xl font-bold text-green-600">{summary.auto}</div>
+                  <div className="text-xs text-green-700">Reconnus automatiquement</div>
+                </div>
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-center">
+                  <div className="text-xl font-bold text-orange-600">{needsAttention}</div>
+                  <div className="text-xs text-orange-700">À vérifier</div>
+                </div>
+                <div className="bg-gray-100 border border-gray-200 rounded-lg p-3 text-center">
+                  <div className="text-xl font-bold text-gray-600">{summary.duplicate}</div>
+                  <div className="text-xs text-gray-700">Déjà dans la classe</div>
+                </div>
+              </div>
+
+              {needsAttention > 0 && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-sm text-orange-700 flex items-start space-x-2">
+                  <HelpCircle size={16} className="mt-0.5 flex-shrink-0" />
+                  <span>
+                    {needsAttention} élève{needsAttention > 1 ? 's nécessitent' : ' nécessite'} votre confirmation ci-dessous.
+                    Sans action de votre part, {needsAttention > 1 ? 'ils seront importés' : 'il sera importé'} comme nouvel élève, sans lien avec son historique.
+                  </span>
+                </div>
+              )}
+
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Élève importé</th>
+                      <th className="px-3 py-2 text-left">Naissance</th>
+                      <th className="px-3 py-2 text-left">Statut</th>
+                      <th className="px-3 py-2 text-left">Correspondance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matches.map((m, index) => (
+                      <tr key={index} className="border-t align-top">
+                        <td className="px-3 py-2 font-medium whitespace-nowrap">{m.firstName} {m.lastName}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-gray-600">{formatDateFR(m.birthDate)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {m.status === 'new' && (
+                            <span className="inline-block px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs">Nouvel élève</span>
+                          )}
+                          {m.status === 'auto' && (
+                            <span className="inline-block px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">🔗 Reconnu</span>
+                          )}
+                          {m.status === 'auto-date' && (
+                            <span className="inline-block px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">🔗 Reconnu (date)</span>
+                          )}
+                          {m.status === 'ambiguous' && (
+                            <span className="inline-block px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 text-xs">⚠️ Homonymes</span>
+                          )}
+                          {m.status === 'suggested' && (
+                            <span className="inline-block px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs">❓ Ressemblance</span>
+                          )}
+                          {m.status === 'duplicate' && (
+                            <span className="inline-block px-2 py-0.5 rounded-full bg-gray-200 text-gray-600 text-xs">Déjà présent</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {(m.status === 'auto' || m.status === 'auto-date') && (
+                            <span className="text-gray-600 text-xs">
+                              Historique lié automatiquement
+                            </span>
+                          )}
+                          {m.status === 'new' && (
+                            <span className="text-gray-400 text-xs">Aucun élève correspondant trouvé</span>
+                          )}
+                          {m.status === 'duplicate' && (
+                            <span className="text-gray-400 text-xs">Ignoré à l'import</span>
+                          )}
+                          {(m.status === 'ambiguous' || m.status === 'suggested') && (
+                            <select
+                              value={m.chosenPermanentId || ''}
+                              onChange={(e) => setMatchChoice(index, e.target.value)}
+                              className="w-full p-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500"
+                            >
+                              <option value="">➕ Nouvel élève (aucun lien)</option>
+                              {m.candidates.map((c, ci) => (
+                                <option key={ci} value={c.permanent_id}>
+                                  {c.first_name} {c.last_name} — né(e) le {formatDateFR(c.birth_date)} — {c.school_year}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Étape 4: Résultats de l'import */}
+          {step === 4 && (
             <div className="space-y-6">
               <div className="text-center">
                 <h3 className="text-lg font-semibold mb-4">
                   {importing ? 'Import en cours...' : 'Import terminé'}
                 </h3>
-                
+
                 {importing ? (
                   <div className="flex items-center justify-center space-x-3">
                     <Loader className="animate-spin text-blue-500" size={24} />
@@ -702,7 +882,6 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Résumé */}
                     <div className="grid grid-cols-3 gap-4 max-w-md mx-auto">
                       <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
                         <div className="text-2xl font-bold text-green-600">{importResults.success}</div>
@@ -717,18 +896,19 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
                         <div className="text-sm text-red-700">Erreurs</div>
                       </div>
                     </div>
+
                     {importResults.linked > 0 && (
                       <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 max-w-md mx-auto text-center">
                         <div className="text-indigo-700 font-semibold text-sm">
                           🔗 {importResults.linked} élève{importResults.linked > 1 ? 's' : ''} reconnu{importResults.linked > 1 ? 's' : ''} depuis une année précédente
                         </div>
                         <div className="text-indigo-500 text-xs mt-1">
+                          {importResults.manual > 0 && `dont ${importResults.manual} confirmé${importResults.manual > 1 ? 's' : ''} manuellement — `}
                           Leur historique de performances est automatiquement lié !
                         </div>
                       </div>
                     )}
-                    
-                    {/* Détails des erreurs */}
+
                     {importResults.errors.length > 0 && (
                       <div className="bg-red-50 border border-red-200 rounded-lg p-4 max-w-2xl mx-auto">
                         <h4 className="font-medium text-red-700 mb-2">Erreurs d'import :</h4>
@@ -748,37 +928,57 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
           {/* Boutons d'action */}
           <div className="flex justify-between pt-6 border-t border-gray-200 mt-6">
             <div>
-              {step > 1 && step < 3 && (
+              {step > 1 && step < 4 && (
                 <button
                   onClick={() => {
                     setStep(1);
                     setFile(null);
                     setExcelData([]);
                     setHeaders([]);
+                    setMatches([]);
                   }}
                   className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
                 >
                   Choisir un autre fichier
                 </button>
               )}
+              {step === 3 && (
+                <button
+                  onClick={() => setStep(2)}
+                  className="ml-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  ← Retour au mapping
+                </button>
+              )}
             </div>
-            
+
             <div className="flex space-x-3">
               <button
                 onClick={onClose}
                 className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
               >
-                {step === 3 ? 'Fermer' : 'Annuler'}
+                {step === 4 ? 'Fermer' : 'Annuler'}
               </button>
-              
+
               {step === 2 && (
                 <button
+                  onClick={buildMatches}
+                  disabled={!validation.isValid || loadingPool || buildingMatches}
+                  className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+                >
+                  {buildingMatches || loadingPool ? <Loader className="animate-spin" size={16} /> : <ArrowRight size={16} />}
+                  <span>Vérifier les correspondances</span>
+                </button>
+              )}
+
+              {step === 3 && (
+                <button
                   onClick={importStudents}
-                  disabled={!mapping.firstName || !mapping.lastName || importing}
+                  disabled={importing}
                   className="flex items-center space-x-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
                 >
                   <Save size={16} />
-                  <span>Importer les élèves</span>
+                  <span>Importer les {matches.filter(m => m.status !== 'duplicate').length} élève{matches.filter(m => m.status !== 'duplicate').length > 1 ? 's' : ''}</span>
                 </button>
               )}
             </div>
@@ -791,7 +991,7 @@ const ExcelImportModal = ({ isOpen, onClose, selectedClass, existingStudents, on
               <div className="text-sm">
                 <p className="font-medium text-orange-700">Note importante :</p>
                 <p className="text-orange-600">
-                  Les élèves seront ajoutés à l'année scolaire <strong>{selectedSchoolYear}</strong>. 
+                  Les élèves seront ajoutés à l'année scolaire <strong>{selectedSchoolYear}</strong>.
                   Le système gère automatiquement différents formats de dates Excel.
                 </p>
               </div>
