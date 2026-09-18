@@ -16,7 +16,11 @@ import {
   Calendar,
   Trash2,
   LayoutGrid,
-  Table as TableIcon
+  Table as TableIcon,
+  History,
+  TrendingUp,
+  TrendingDown,
+  Minus
 } from 'lucide-react';
 
 // UTILISE L'INSTANCE CENTRALISÉE - PAS DE CRÉATION D'INSTANCE
@@ -64,6 +68,38 @@ const getCategoryColors = (category) => {
   };
   return categoryColorMap[category] || categoryColorMap['ENDURANCE'];
 };
+
+// Certains tests sont chronométrés : une valeur plus BASSE y est une progression
+// (ex. sprint, 30 mètres). Pour tous les autres (distance, points, paliers...),
+// une valeur plus HAUTE est une progression. Même logique que StudentEvolutionPanel.
+const isLowerBetter = (testName = '') => {
+  const timeBased = ['SPRINT', '30 MÈTRES', '30 METRES', 'FLAMINGO', 'NAVETTE'];
+  const upper = testName.toUpperCase();
+  return timeBased.some(t => upper.includes(t));
+};
+
+// Petite pastille de tendance comparant la valeur actuelle à l'année précédente
+function TrendBadge({ current, previous, testName }) {
+  if (current === null || current === undefined || previous === null || previous === undefined) return null;
+  const diff = current - previous;
+  if (Math.abs(diff) < 0.01) {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-gray-500">
+        <Minus size={11} />
+      </span>
+    );
+  }
+  const lowerBetter = isLowerBetter(testName);
+  const isProgress = lowerBetter ? diff < 0 : diff > 0;
+  const Icon = isProgress ? TrendingUp : TrendingDown;
+  const colorClass = isProgress ? 'text-green-600' : 'text-red-500';
+  return (
+    <span className={`inline-flex items-center gap-0.5 font-semibold ${colorClass}`}>
+      <Icon size={11} />
+      {diff > 0 ? '+' : ''}{Math.round(diff * 100) / 100}
+    </span>
+  );
+}
 
 // ===================== VUE : SÉLECTION DE CLASSE =====================
 function ClassSelectionView({ classes, studentsCount, selectedSchoolYear, currentSchoolYear, onSelectClass }) {
@@ -210,7 +246,9 @@ function StudentEntryCard({
   onKeyDown,
   onBlur,
   onSetStatus,
-  onClearResult
+  onClearResult,
+  previousYearEntry,
+  previousSchoolYearLabel
 }) {
   let borderClass = 'border-gray-200';
   if (result.status === 'result') borderClass = 'border-green-300 bg-green-50';
@@ -237,6 +275,23 @@ function StudentEntryCard({
         <div className="font-bold text-gray-800 text-sm leading-tight">{student.last_name}</div>
         <div className="text-gray-600 text-sm leading-tight">{student.first_name}</div>
       </div>
+
+      {/* Repère année précédente */}
+      {previousYearEntry && (
+        <div className="flex items-center justify-center gap-1.5 text-[11px] text-gray-500 mb-2 bg-gray-50 rounded py-1 px-1.5">
+          <History size={11} className="shrink-0 text-gray-400" />
+          {previousYearEntry.status === 'result' ? (
+            <>
+              <span>{previousSchoolYearLabel} : <strong className="text-gray-700">{previousYearEntry.value} {selectedTest.unit}</strong></span>
+              {result.status === 'result' && (
+                <TrendBadge current={result.value} previous={previousYearEntry.value} testName={selectedTest.name} />
+              )}
+            </>
+          ) : (
+            <span>{previousSchoolYearLabel} : {previousYearEntry.status === 'absent' ? 'absent' : 'dispensé'}</span>
+          )}
+        </div>
+      )}
 
       {result.status === 'absent' || result.status === 'dispensed' ? (
         <div className="space-y-2">
@@ -308,7 +363,10 @@ function EntryView({
   onKeyDown,
   onBlur,
   onSetStatus,
-  onClearResult
+  onClearResult,
+  previousYearData,
+  previousYearLoading,
+  previousSchoolYearLabel
 }) {
   const { completed, total } = selectedTest ? getTestCompletion(selectedTest.id) : { completed: 0, total: 0 };
 
@@ -357,10 +415,14 @@ function EntryView({
             </div>
           </div>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 flex items-center gap-2">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 flex items-center gap-2 flex-wrap">
             <Activity className="text-blue-600 shrink-0" size={16} />
             <p className="text-sm text-blue-700">
               Tapez le résultat puis appuyez sur <kbd className="bg-blue-200 px-1 rounded">Entrée</kbd> pour valider et passer à l'élève suivant.
+              {previousYearLoading && <span className="ml-2 text-blue-400">(chargement de la comparaison {previousSchoolYearLabel}…)</span>}
+              {!previousYearLoading && previousSchoolYearLabel && Object.keys(previousYearData).length === 0 && (
+                <span className="ml-2 text-blue-400">Aucune donnée {previousSchoolYearLabel} trouvée pour ce test.</span>
+              )}
             </p>
           </div>
 
@@ -389,6 +451,8 @@ function EntryView({
                     onBlur={onBlur}
                     onSetStatus={onSetStatus}
                     onClearResult={onClearResult}
+                    previousYearEntry={previousYearData[student.id]}
+                    previousSchoolYearLabel={previousSchoolYearLabel}
                   />
                 );
               })}
@@ -612,6 +676,11 @@ const ResultsEntrySupabase = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [studentsCount, setStudentsCount] = useState({});
 
+  // Comparaison avec l'année précédente (repère affiché dans les vignettes)
+  const [previousYearData, setPreviousYearData] = useState({}); // { studentId: { status, value } }
+  const [previousYearLoading, setPreviousYearLoading] = useState(false);
+  const [previousSchoolYearLabel, setPreviousSchoolYearLabel] = useState(null);
+
   // Refs vers les inputs des vignettes, pour la navigation clavier
   const inputRefs = useRef(new Map());
   const registerInputRef = (studentId, el) => {
@@ -647,6 +716,89 @@ const ResultsEntrySupabase = () => {
     setDraftValues(newDraft);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTest, students]);
+
+  // Charge, pour le test sélectionné, les résultats de l'année scolaire précédente
+  // des mêmes élèves (reliés via permanent_id), pour affichage en repère dans les vignettes
+  useEffect(() => {
+    loadPreviousYearComparison();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTest, students, selectedSchoolYear]);
+
+  const loadPreviousYearComparison = async () => {
+    if (!selectedTest || students.length === 0 || !selectedSchoolYear) {
+      setPreviousYearData({});
+      setPreviousSchoolYearLabel(null);
+      return;
+    }
+
+    const parts = selectedSchoolYear.split('-').map(Number);
+    if (parts.length !== 2 || parts.some(isNaN)) {
+      setPreviousYearData({});
+      setPreviousSchoolYearLabel(null);
+      return;
+    }
+    const previousSchoolYear = `${parts[0] - 1}-${parts[1] - 1}`;
+    setPreviousSchoolYearLabel(previousSchoolYear);
+
+    const permanentIds = [...new Set(students.map(s => s.permanent_id).filter(Boolean))];
+    if (permanentIds.length === 0) {
+      setPreviousYearData({});
+      return;
+    }
+
+    try {
+      setPreviousYearLoading(true);
+
+      const { data: prevStudents, error: prevErr } = await supabase
+        .from('students')
+        .select('id, permanent_id')
+        .eq('school_year', previousSchoolYear)
+        .in('permanent_id', permanentIds);
+
+      if (prevErr || !prevStudents?.length) {
+        setPreviousYearData({});
+        return;
+      }
+
+      const prevIdByPermanent = {};
+      prevStudents.forEach(s => { prevIdByPermanent[s.permanent_id] = s.id; });
+      const prevStudentIds = prevStudents.map(s => s.id);
+
+      const { data: prevResults, error: resErr } = await supabase
+        .from('results')
+        .select('student_id, value, absent, dispensed')
+        .eq('test_id', selectedTest.id)
+        .in('student_id', prevStudentIds);
+
+      if (resErr) {
+        setPreviousYearData({});
+        return;
+      }
+
+      const resultByPrevId = {};
+      (prevResults || []).forEach(r => { resultByPrevId[r.student_id] = r; });
+
+      const map = {};
+      students.forEach(s => {
+        if (!s.permanent_id) return;
+        const prevId = prevIdByPermanent[s.permanent_id];
+        if (prevId === undefined) return;
+        const r = resultByPrevId[prevId];
+        if (!r) return;
+        let status = 'result';
+        if (r.absent) status = 'absent';
+        else if (r.dispensed) status = 'dispensed';
+        map[s.id] = { status, value: r.value };
+      });
+      setPreviousYearData(map);
+
+    } catch (err) {
+      console.error('Erreur comparaison année précédente:', err);
+      setPreviousYearData({});
+    } finally {
+      setPreviousYearLoading(false);
+    }
+  };
 
   // Focus différé sur une vignette (après un clic depuis la vue d'ensemble ou après validation)
   useEffect(() => {
@@ -1044,7 +1196,10 @@ const ResultsEntrySupabase = () => {
     onKeyDown: handleKeyDown,
     onBlur: handleBlurSave,
     onSetStatus: handleSetStatus,
-    onClearResult: handleClearResult
+    onClearResult: handleClearResult,
+    previousYearData,
+    previousYearLoading,
+    previousSchoolYearLabel
   };
 
   const overviewViewProps = {
