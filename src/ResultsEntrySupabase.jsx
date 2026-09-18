@@ -149,7 +149,7 @@ function ClassSelectionView({ classes, studentsCount, selectedSchoolYear, curren
   );
 }
 
-// ===================== SÉLECTEUR DE TEST (en haut) =====================
+// ===================== SÉLECTEUR DE TEST (en haut) - version compacte =====================
 function TestSelector({ tests, selectedTest, getTestCompletion, onSelectTest }) {
   const byCategory = {};
   tests.forEach(t => {
@@ -157,47 +157,41 @@ function TestSelector({ tests, selectedTest, getTestCompletion, onSelectTest }) 
     byCategory[t.category].push(t);
   });
 
+  const selectedCompletion = selectedTest ? getTestCompletion(selectedTest.id) : null;
+  const catColors = selectedTest ? getCategoryColors(selectedTest.category) : null;
+
   return (
-    <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-      <div className="flex items-center space-x-2 mb-3">
-        <Target size={18} className="text-gray-500" />
-        <h3 className="font-semibold text-gray-700">Choisir le test à saisir</h3>
-      </div>
-      <div className="space-y-3">
-        {Object.entries(byCategory).map(([category, catTests]) => {
-          const catColors = getCategoryColors(category);
-          return (
-            <div key={category} className="flex flex-wrap items-center gap-2">
-              <span className={`text-xs font-bold px-2 py-1 rounded ${catColors.bg} ${catColors.text} border ${catColors.border} shrink-0`}>
-                {category}
-              </span>
-              {catTests.map(test => {
-                const { completed, total } = getTestCompletion(test.id);
-                const isActive = selectedTest?.id === test.id;
-                const isDone = total > 0 && completed === total;
-                return (
-                  <button
-                    key={test.id}
-                    onClick={() => onSelectTest(test)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                      isActive
-                        ? `${catColors.activeBg} text-white border-transparent shadow`
-                        : `bg-white ${catColors.border} ${catColors.text} hover:${catColors.bg}`
-                    }`}
-                  >
-                    <span>{test.name}</span>
-                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                      isActive ? 'bg-white/20' : isDone ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {completed}/{total}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
+    <div className="bg-white rounded-lg shadow-sm p-3 mb-6 flex items-center gap-3 flex-wrap">
+      <Target size={16} className="text-gray-400 shrink-0" />
+
+      <select
+        value={selectedTest?.id ?? ''}
+        onChange={(e) => {
+          const test = tests.find(t => String(t.id) === e.target.value);
+          if (test) onSelectTest(test);
+        }}
+        className="flex-1 min-w-[260px] border border-gray-300 rounded-md px-3 py-2 text-sm font-medium text-gray-700 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+      >
+        <option value="" disabled>Choisir un test à saisir…</option>
+        {Object.entries(byCategory).map(([category, catTests]) => (
+          <optgroup key={category} label={category}>
+            {catTests.map(test => {
+              const { completed, total } = getTestCompletion(test.id);
+              return (
+                <option key={test.id} value={test.id}>
+                  {test.name} — {completed}/{total}
+                </option>
+              );
+            })}
+          </optgroup>
+        ))}
+      </select>
+
+      {selectedTest && selectedCompletion && (
+        <span className={`text-xs font-bold px-2 py-1 rounded shrink-0 ${catColors.bg} ${catColors.text} border ${catColors.border}`}>
+          {selectedTest.category}
+        </span>
+      )}
     </div>
   );
 }
