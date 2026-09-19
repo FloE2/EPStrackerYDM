@@ -56,8 +56,21 @@ export const ENERGY_LEVELS = [
   },
 ];
 
+// Niveau neutre utilisé quand il n'y a tout simplement pas encore assez de
+// résultats pour calculer un score - à ne pas confondre avec une "vraie"
+// faible performance (score 0-30), qui reste dans ENERGY_LEVELS.
+export const NO_DATA_LEVEL = {
+  min: null, max: null,
+  label: 'Pas encore évalué', icon: '➖',
+  from: '#cbd5e1', to: '#94a3b8',
+  ring: '#e2e8f0', text: '#f8fafc',
+  glow: 'rgba(203,213,225,0.3)',
+  pulse: false,
+  isNoData: true,
+};
+
 export const getEnergyLevel = (score) => {
-  if (score === null || score === undefined) return ENERGY_LEVELS[0];
+  if (score === null || score === undefined) return NO_DATA_LEVEL;
   return ENERGY_LEVELS.find(l => score >= l.min && score <= l.max) || ENERGY_LEVELS[0];
 };
 
