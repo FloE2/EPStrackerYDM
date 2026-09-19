@@ -891,10 +891,10 @@ const generateHTML = (yearsData, reportType, collegeName) => {
         margin: 0,
         filename: FILENAME,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
         pagebreak: { mode: ['css', 'legacy'] }
-      }).from(document.body).save();
+      }).from(document.getElementById('pdf-root')).save();
     }).then(function() {
       btn.style.display = '';
       btn.textContent = '✓ Téléchargé';
@@ -918,7 +918,9 @@ const generateHTML = (yearsData, reportType, collegeName) => {
 </head>
 <body>
 ${downloadWidget}
+<div id="pdf-root" style="width:1122px;margin:0 auto;background:#ffffff;">
 ${body}
+</div>
 </body>
 </html>`;
 };
