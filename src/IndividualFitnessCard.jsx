@@ -1803,12 +1803,19 @@ const IndividualFitnessCard = () => {
   };
 
   // Fonction pour générer le HTML optimisé A4 avec gestion des dispenses
-  const generateOptimizedHTML = (student, results, globalScore) => {
+  const generateOptimizedHTML = (student, results, globalScore, withButton = true) => {
     const currentDate = new Date().toLocaleDateString('fr-FR', {
       day: '2-digit',
       month: '2-digit', 
       year: 'numeric'
     });
+
+    // Bouton flottant : n'imprime QUE sur clic, jamais automatiquement.
+    // Absent quand ce document est fusionné dans l'export de toute la classe
+    // (un seul bouton global suffit alors, ajouté par exportAllClassPDFs).
+    const downloadBtnHTML = withButton ? `
+    <button class="no-print" title="Télécharger en PDF (imprimer → Enregistrer au format PDF)" onclick="window.print()" style="position:fixed;top:16px;right:16px;z-index:9999;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:#059669;color:white;border:none;border-radius:50%;cursor:pointer;font-size:18px;box-shadow:0 4px 14px rgba(0,0,0,0.25);">⬇</button>
+    <style>@media print { .no-print { display: none !important; } }</style>` : '';
 
     return `
 <!DOCTYPE html>
@@ -1878,6 +1885,7 @@ const IndividualFitnessCard = () => {
     </style>
 </head>
 <body>
+    ${downloadBtnHTML}
     <div class="header">
         <div class="student-info">
             <h1>${student.first_name} ${student.last_name}</h1>
@@ -2020,13 +2028,6 @@ const IndividualFitnessCard = () => {
     printWindow.document.open();
     printWindow.document.write(printContent);
     printWindow.document.close();
-    
-    printWindow.onload = () => {
-      setTimeout(() => {
-        printWindow.print();
-        printWindow.close();
-      }, 250);
-    };
   };
 
   const exportAllClassPDFs = async () => {
@@ -2064,7 +2065,7 @@ const IndividualFitnessCard = () => {
           return Math.round(categoriesWithResults.reduce((acc, cat) => acc + cat.score, 0) / categoriesWithResults.length);
         })();
 
-        const studentHTML = generateOptimizedHTML(student, processedResults, globalScore);
+        const studentHTML = generateOptimizedHTML(student, processedResults, globalScore, false);
         
         const bodyMatch = studentHTML.match(/<body>([\s\S]*)<\/body>/);
         if (bodyMatch) {
