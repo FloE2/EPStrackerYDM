@@ -1678,8 +1678,12 @@ const IndividualFitnessCard = () => {
     return "#ef4444";
   };
 
-  const getCategoryAdvice = (category, score, testsCompleted, totalTests) => {
+  const getCategoryAdvice = (category, score, testsCompleted, totalTests, hasEnoughData = true) => {
     const completionRate = totalTests > 0 ? (testsCompleted / totalTests) * 100 : 0;
+
+    if (testsCompleted > 0 && !hasEnoughData) {
+      return "Les résultats ont bien été enregistrés, mais pas encore assez d'élèves du même niveau ont passé ces tests cette année pour calculer un score comparatif fiable. Le score apparaîtra automatiquement dès que davantage de résultats seront saisis dans l'établissement.";
+    }
     
     const adviceMap = {
       ENDURANCE: {
@@ -2212,6 +2216,7 @@ const IndividualFitnessCard = () => {
         totalTests: categories[catKey]?.tests?.length || 0,
         completionPercentage: 0,
         hasInsufficientData: false,
+        validTests: 0,
         details: []
       };
     });
@@ -2258,8 +2263,13 @@ const IndividualFitnessCard = () => {
             
             categoryData.score = result.score;
             categoryData.hasInsufficientData = result.hasInsufficientData;
+            categoryData.validTests = result.validTests || 0;
             categoryData.details = result.details;
-            categoryData.level = getScoreLevel(result.score);
+            // "Pas assez de données" tant qu'aucun test de la catégorie n'a pu être
+            // comparé à une cohorte suffisante, même si l'élève a bien été testé.
+            categoryData.level = categoryData.validTests > 0
+              ? getScoreLevel(result.score)
+              : (testsCount > 0 ? 'Pas assez de données' : 'Non évalué');
           } else {
             categoryData.score = 50;
             categoryData.level = "Correct";
@@ -2315,11 +2325,33 @@ const IndividualFitnessCard = () => {
     }
   };
 
-  const CircularGauge = ({ score, color, size = 100 }) => {
+  const CircularGauge = ({ score, color, size = 100, insufficient = false }) => {
     const radius = 35;
     const circumference = 2 * Math.PI * radius;
     const strokeDashoffset = circumference - (score / 100) * circumference;
-    
+
+    if (insufficient) {
+      return (
+        <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+          <svg width={size} height={size} className="transform -rotate-90">
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              stroke="#e5e7eb"
+              strokeWidth="6"
+              fill="none"
+              strokeDasharray="4 5"
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-xl font-bold text-gray-400">—</span>
+            <span className="text-[10px] text-gray-400 text-center leading-tight px-1">Pas assez<br/>de données</span>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="transform -rotate-90">
@@ -2573,11 +2605,13 @@ const IndividualFitnessCard = () => {
 
   const StudentFitnessCardView = () => {
     const colors = selectedStudent?.classes ? getLevelColors(selectedStudent.classes.level) : getLevelColors('6ème');
-    const globalScore = studentResults ? (() => {
-      const categoriesWithResults = Object.values(studentResults).filter(cat => cat.score > 0);
-      if (categoriesWithResults.length === 0) return 0;
-      return Math.round(categoriesWithResults.reduce((acc, cat) => acc + cat.score, 0) / categoriesWithResults.length);
-    })() : 0;
+    const categoriesWithValidScore = studentResults
+      ? Object.values(studentResults).filter(cat => (cat.validTests || 0) > 0)
+      : [];
+    const hasAnyValidScore = categoriesWithValidScore.length > 0;
+    const globalScore = hasAnyValidScore
+      ? Math.round(categoriesWithValidScore.reduce((acc, cat) => acc + cat.score, 0) / categoriesWithValidScore.length)
+      : 0;
 
     if (!selectedStudent || !selectedStudent.classes) {
       return (
@@ -2667,7 +2701,7 @@ const IndividualFitnessCard = () => {
                 <EnergyAvatar
                   firstName={selectedStudent.first_name}
                   lastName={selectedStudent.last_name}
-                  score={globalScore}
+                  score={hasAnyValidScore ? globalScore : null}
                   size="lg"
                   showLabel={true}
                   showScore={true}
@@ -2678,19 +2712,24 @@ const IndividualFitnessCard = () => {
               <div className="flex items-center space-x-6">
                 {/* Score Global */}
                 <div className="text-center">
-                  <div className="text-5xl font-bold mb-2" style={{ color: getScoreColor(globalScore) }}>
-                    {globalScore}<span className="text-2xl">/100</span>
+                  <div className="text-5xl font-bold mb-2" style={{ color: hasAnyValidScore ? getScoreColor(globalScore) : '#9ca3af' }}>
+                    {hasAnyValidScore ? globalScore : '—'}<span className="text-2xl">/100</span>
                   </div>
                   <div className="text-sm text-gray-600 uppercase tracking-wide font-semibold mb-1">
                     Score global
                   </div>
                   <div className="mt-2 px-3 py-1 rounded-full text-xs font-bold" 
                        style={{ 
-                         backgroundColor: getScoreColor(globalScore) + '20',
-                         color: getScoreColor(globalScore)
+                         backgroundColor: (hasAnyValidScore ? getScoreColor(globalScore) : '#9ca3af') + '20',
+                         color: hasAnyValidScore ? getScoreColor(globalScore) : '#6b7280'
                        }}>
-                    {getScoreLevel(globalScore)}
+                    {hasAnyValidScore ? getScoreLevel(globalScore) : 'Pas assez de données'}
                   </div>
+                  {!hasAnyValidScore && (
+                    <p className="text-[11px] text-gray-400 mt-1 max-w-[160px] mx-auto leading-tight">
+                      Pas encore assez d'élèves testés cette année pour comparer
+                    </p>
+                  )}
                   <button
                     onClick={() => setShowEvolution(true)}
                     className="mt-3 flex items-center space-x-1 text-xs text-indigo-600 hover:text-indigo-800 transition-colors mx-auto"
@@ -2720,7 +2759,8 @@ const IndividualFitnessCard = () => {
                 };
                 
                 const IconComponent = category.icon;
-                const evaluationColor = getEvaluationColor(result.score);
+                const hasEnoughData = (result.validTests || 0) > 0;
+                const evaluationColor = hasEnoughData ? getEvaluationColor(result.score) : '#9ca3af';
                 
                 return (
                   <div key={key} className={`bg-gradient-to-br ${category.bgColor} rounded-lg shadow-md border ${category.borderColor} p-4`}>
@@ -2736,7 +2776,7 @@ const IndividualFitnessCard = () => {
                           <h3 className="font-bold text-gray-800 text-sm" style={{ color: category.color }}>
                             {category.name}
                           </h3>
-                          <p className="text-xs text-gray-600">{result.level}</p>
+                          <p className={`text-xs ${hasEnoughData ? 'text-gray-600' : 'text-gray-400 italic'}`}>{result.level}</p>
                         </div>
                       </div>
                       <span className="text-xs text-gray-500">
@@ -2745,7 +2785,7 @@ const IndividualFitnessCard = () => {
                     </div>
 
                     <div className="flex justify-center mb-4">
-                      <CircularGauge score={result.score} color={evaluationColor} size={80} />
+                      <CircularGauge score={result.score} color={evaluationColor} size={80} insufficient={result.testsCompleted > 0 && !hasEnoughData} />
                     </div>
 
                     <div className="space-y-2 mb-4">
@@ -2798,7 +2838,7 @@ const IndividualFitnessCard = () => {
                         <div>
                           <h5 className="text-xs font-semibold text-gray-800 mb-1">Conseil personnalisé</h5>
                           <p className="text-xs text-gray-700 leading-relaxed">
-                            {getCategoryAdvice(key, result.score, result.testsCompleted, result.totalTests)}
+                            {getCategoryAdvice(key, result.score, result.testsCompleted, result.totalTests, hasEnoughData)}
                           </p>
                         </div>
                       </div>
