@@ -865,6 +865,22 @@ ${body}
 
 // ─── Composant React ───────────────────────────────────────────────────────────
 
+// Charge html2pdf.js à la demande (une seule fois) depuis un CDN, pour éviter
+// d'ajouter une dépendance npm juste pour ces deux boutons de téléchargement.
+let html2pdfLoadPromise = null;
+const loadHtml2Pdf = () => {
+  if (window.html2pdf) return Promise.resolve(window.html2pdf);
+  if (html2pdfLoadPromise) return html2pdfLoadPromise;
+  html2pdfLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.3/html2pdf.bundle.min.js';
+    script.onload = () => resolve(window.html2pdf);
+    script.onerror = () => reject(new Error("Impossible de charger l'outil de génération PDF (vérifiez la connexion internet)"));
+    document.head.appendChild(script);
+  });
+  return html2pdfLoadPromise;
+};
+
 const ParentReportGenerator = ({ student, currentSchoolYear, collegeName }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState('');
@@ -904,11 +920,42 @@ const ParentReportGenerator = ({ student, currentSchoolYear, collegeName }) => {
       setProgress('Génération du document...');
       const html = generateHTML(yearsData, reportType, collegeName);
 
-      const win = window.open('', '_blank');
-      win.document.open();
-      win.document.write(html);
-      win.document.close();
-      win.onload = () => setTimeout(() => win.print(), 600);
+      setProgress('Préparation du PDF...');
+      const html2pdf = await loadHtml2Pdf();
+
+      // On extrait le contenu (style + corps) du document généré pour
+      // l'injecter, hors écran, dans la page actuelle : c'est ce conteneur
+      // que html2pdf convertit en PDF, sans jamais ouvrir de fenêtre ni la
+      // boîte de dialogue d'impression du navigateur.
+      const parsed = new DOMParser().parseFromString(html, 'text/html');
+      const styleHTML = parsed.querySelector('style')?.outerHTML || '';
+      const container = document.createElement('div');
+      container.style.position = 'fixed';
+      container.style.left = '-9999px';
+      container.style.top = '0';
+      container.style.width = '210mm';
+      container.innerHTML = styleHTML + parsed.body.innerHTML;
+      document.body.appendChild(container);
+
+      const safe = (s) => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-');
+      const filename = reportType === 'final'
+        ? `Bilan-de-parcours-${safe(student.first_name)}-${safe(student.last_name)}.pdf`
+        : `Bilan-EPS-${safe(student.first_name)}-${safe(student.last_name)}-${currentSchoolYear}.pdf`;
+
+      setProgress('Téléchargement...');
+      await html2pdf()
+        .set({
+          margin: 0,
+          filename,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true, windowWidth: container.scrollWidth },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak: { mode: ['css', 'legacy'] }
+        })
+        .from(container)
+        .save();
+
+      document.body.removeChild(container);
 
     } catch (err) {
       console.error('Erreur génération bilan:', err);
@@ -941,20 +988,26 @@ const ParentReportGenerator = ({ student, currentSchoolYear, collegeName }) => {
       </button>
 
       {showMenu && !loading && (
-        <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[220px]">
+        <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[240px]">
           <button
             onClick={() => generate('annual')}
-            className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100"
+            className="w-full flex items-center justify-between text-left px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-100"
           >
-            <div className="font-semibold text-gray-800 text-sm">📄 Bilan Annuel</div>
-            <div className="text-xs text-gray-500 mt-0.5">Résultats de l'année en cours</div>
+            <div>
+              <div className="font-semibold text-gray-800 text-sm">📄 Bilan Annuel</div>
+              <div className="text-xs text-gray-500 mt-0.5">Résultats de l'année en cours</div>
+            </div>
+            <Download size={16} className="text-emerald-600 flex-shrink-0 ml-2" />
           </button>
           <button
             onClick={() => generate('final')}
-            className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
+            className="w-full flex items-center justify-between text-left px-4 py-3 hover:bg-gray-50 transition-colors"
           >
-            <div className="font-semibold text-gray-800 text-sm">📚 Bilan de Fin de Collège</div>
-            <div className="text-xs text-gray-500 mt-0.5">Évolution complète 6ème → 3ème</div>
+            <div>
+              <div className="font-semibold text-gray-800 text-sm">📚 Bilan de Fin de Collège</div>
+              <div className="text-xs text-gray-500 mt-0.5">Évolution complète 6ème → 3ème</div>
+            </div>
+            <Download size={16} className="text-emerald-600 flex-shrink-0 ml-2" />
           </button>
         </div>
       )}
