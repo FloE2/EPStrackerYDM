@@ -860,13 +860,13 @@ const generateHTML = (yearsData, reportType, collegeName) => {
   // pas cliqué explicitement dessus. Masqué à l'impression (@media print) et
   // exclu automatiquement du PDF puisqu'il est caché avant la capture.
   const downloadWidget = `
-<button id="pdf-dl-btn" class="no-print" style="position:fixed;top:16px;right:16px;z-index:9999;background:#059669;color:white;border:none;padding:10px 20px;border-radius:8px;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.25);">⬇ Télécharger en PDF</button>
+<button id="pdf-dl-btn" class="no-print" title="Télécharger en PDF" style="position:fixed;top:16px;right:16px;z-index:9999;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:#059669;color:white;border:none;border-radius:50%;cursor:pointer;font-size:18px;box-shadow:0 4px 14px rgba(0,0,0,0.25);">⬇</button>
 <style>@media print { .no-print { display: none !important; } }</style>
 <script>
 (function() {
   var btn = document.getElementById('pdf-dl-btn');
   var FILENAME = ${JSON.stringify(pdfFilename)};
-  var DEFAULT_LABEL = btn.textContent;
+  var DEFAULT_ICON = btn.textContent;
 
   function loadScript(src) {
     return new Promise(function(resolve, reject) {
@@ -880,29 +880,34 @@ const generateHTML = (yearsData, reportType, collegeName) => {
 
   btn.addEventListener('click', function() {
     btn.disabled = true;
-    btn.textContent = 'Génération du PDF…';
+    btn.textContent = '⏳';
+    btn.title = 'Génération du PDF…';
     var ready = window.html2pdf
       ? Promise.resolve()
       : loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.3/html2pdf.bundle.min.js');
 
     ready.then(function() {
       btn.style.display = 'none'; // exclu de la capture
+      var root = document.getElementById('pdf-root');
+      var fullWidth = root.scrollWidth; // largeur RÉELLE du contenu, même s'il dépasse la largeur visée
       return window.html2pdf().set({
         margin: 0,
         filename: FILENAME,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: fullWidth, width: fullWidth },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
         pagebreak: { mode: ['css', 'legacy'] }
-      }).from(document.getElementById('pdf-root')).save();
+      }).from(root).save();
     }).then(function() {
       btn.style.display = '';
-      btn.textContent = '✓ Téléchargé';
-      setTimeout(function() { btn.textContent = DEFAULT_LABEL; btn.disabled = false; }, 2000);
+      btn.textContent = '✓';
+      btn.title = 'Téléchargé';
+      setTimeout(function() { btn.textContent = DEFAULT_ICON; btn.title = 'Télécharger en PDF'; btn.disabled = false; }, 2000);
     }).catch(function(err) {
       btn.style.display = '';
       btn.disabled = false;
-      btn.textContent = DEFAULT_LABEL;
+      btn.textContent = DEFAULT_ICON;
+      btn.title = 'Télécharger en PDF';
       alert('Erreur lors de la génération du PDF : ' + err.message);
     });
   });
@@ -918,7 +923,7 @@ const generateHTML = (yearsData, reportType, collegeName) => {
 </head>
 <body>
 ${downloadWidget}
-<div id="pdf-root" style="width:1122px;margin:0 auto;background:#ffffff;">
+<div id="pdf-root" style="width:1122px;max-width:1122px;margin:0 auto;background:#ffffff;overflow:visible;">
 ${body}
 </div>
 </body>
