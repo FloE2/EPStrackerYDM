@@ -6,7 +6,6 @@ import {
   ClipboardList, 
   BarChart3, 
   GraduationCap, 
-  Zap, 
   CheckCircle, 
   XCircle, 
   Loader, 
@@ -31,7 +30,6 @@ import { SchoolYearProvider, useSchoolYear } from './contexts/SchoolYearContext.
 import ClassManagementSupabase from './ClassManagementSupabase.jsx';
 import TestManagementSupabase from './TestManagementSupabase.jsx';
 import ResultsEntrySupabase from './ResultsEntrySupabase.jsx';
-import QuickResultsEntrySupabase from './components/QuickResultsEntrySupabase.jsx'; // Celui-ci est dans components/
 import SynthesisSupabase from './SynthesisSupabase.jsx';
 import IndividualFitnessCard from './IndividualFitnessCard.jsx';
 import ChallengesClasses from './ChallengesClasses.jsx';  // AJOUTÉ
@@ -507,7 +505,6 @@ const Navigation = ({ activeTab, setActiveTab }) => {
     { id: 'results',          label: 'Saisie Résultats',     icon: ClipboardList, viewer: false },
     { id: 'individual-cards', label: 'Fiches Individuelles', icon: UserCheck,     viewer: true  },
     { id: 'challenges',       label: 'Challenges Classes',   icon: Trophy,        viewer: true  },
-    { id: 'quick-entry',      label: 'Mode Élève',           icon: Zap,           viewer: false },
     { id: 'trends',           label: '📈 Tendances',         icon: BarChart3,     viewer: true  },
   ];
 
@@ -564,8 +561,6 @@ function App() {
         return <TestManagementSupabase />;
       case 'results':
         return <ResultsEntrySupabase />;
-      case 'quick-entry':
-        return <QuickResultsEntrySupabase setActiveTab={safeSetActiveTab} />;
       case 'individual-cards':
         return <IndividualFitnessCard setActiveTab={safeSetActiveTab} />;
       case 'challenges':
@@ -577,13 +572,11 @@ function App() {
     }
   };
 
-  const isQuickEntryMode = activeTab === 'quick-entry';
-
   return (
     <SchoolYearProvider>
       <div className="min-h-screen bg-gray-100">
-        {!isQuickEntryMode && <Header />}
-        {!isQuickEntryMode && <Navigation activeTab={activeTab} setActiveTab={safeSetActiveTab} />}
+        <Header />
+        <Navigation activeTab={activeTab} setActiveTab={safeSetActiveTab} />
         <main className="min-h-screen">
           {renderContent()}
         </main>
