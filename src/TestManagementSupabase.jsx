@@ -21,7 +21,7 @@ import {
   CheckCircle
 } from 'lucide-react';
 
-// UTILISE L'INSTANCE CENTRALISÃ‰E - PAS DE CRÃ‰ATION D'INSTANCE
+// UTILISE L'INSTANCE CENTRALISÉE - PAS DE CRÉATION D'INSTANCE
 import { supabase } from './lib/supabase.js';
 
 const TestManagementSupabase = () => {
@@ -78,7 +78,7 @@ const TestManagementSupabase = () => {
       bg: 'bg-purple-50',
       border: 'border-purple-200',
       text: 'text-purple-700',
-      name: 'Ã‰quilibre'
+      name: 'Équilibre'
     },
     VITESSE: { 
       icon: Zap, 
@@ -127,7 +127,7 @@ const TestManagementSupabase = () => {
       setLoading(true);
       setError(null);
       
-      console.log('ðŸ”— TestManagement: Utilisation instance Supabase centralisÃ©e');
+      console.log('🔗 TestManagement: Utilisation instance Supabase centralisée');
       
       const { data, error } = await supabase
         .from('tests')
@@ -226,7 +226,7 @@ const TestManagementSupabase = () => {
     try {
       setDeleting(true);
       
-      // VÃ©rifier s'il y a des rÃ©sultats associÃ©s Ã  ce test
+      // Vérifier s'il y a des résultats associés à  ce test
       const { data: results, error: checkError } = await supabase
         .from('results')
         .select('id')
@@ -234,11 +234,11 @@ const TestManagementSupabase = () => {
         .limit(1);
       
       if (checkError) {
-        throw new Error(`Erreur lors de la vÃ©rification: ${checkError.message}`);
+        throw new Error(`Erreur lors de la vérification: ${checkError.message}`);
       }
       
       if (results && results.length > 0) {
-        alert('âš ï¸ Ce test ne peut pas Ãªtre supprimÃ© car il contient des rÃ©sultats d\'Ã©lÃ¨ves. Vous devez d\'abord supprimer tous les rÃ©sultats associÃ©s.');
+        alert('⚠️ Ce test ne peut pas être supprimé car il contient des résultats d\'élèves. Vous devez d\'abord supprimer tous les résultats associés.');
         return;
       }
       
@@ -252,14 +252,14 @@ const TestManagementSupabase = () => {
         throw new Error(`Erreur de suppression: ${deleteError.message}`);
       }
       
-      alert('âœ… Test supprimÃ© avec succÃ¨s !');
+      alert('✅ Test supprimé avec succès !');
       
-      // Recharger les donnÃ©es
+      // Recharger les données
       await loadTests();
       setShowDeleteConfirm(null);
       
     } catch (error) {
-      console.error('Erreur complÃ¨te:', error);
+      console.error('Erreur complète:', error);
       alert(`Erreur lors de la suppression: ${error.message}`);
     } finally {
       setDeleting(false);
@@ -297,12 +297,12 @@ const TestManagementSupabase = () => {
           .select();
         
         if (error) {
-          console.error('Erreur Supabase (Ã©dition):', error);
-          throw new Error(`Erreur d'Ã©dition: ${error.message}`);
+          console.error('Erreur Supabase (édition):', error);
+          throw new Error(`Erreur d'édition: ${error.message}`);
         }
         
-        console.log('Test modifiÃ©:', data);
-        alert('Test modifiÃ© avec succÃ¨s !');
+        console.log('Test modifié:', data);
+        alert('Test modifié avec succès !');
         
       } else {
         const { data, error } = await supabase
@@ -311,19 +311,19 @@ const TestManagementSupabase = () => {
           .select();
         
         if (error) {
-          console.error('Erreur Supabase (crÃ©ation):', error);
-          throw new Error(`Erreur de crÃ©ation: ${error.message}`);
+          console.error('Erreur Supabase (création):', error);
+          throw new Error(`Erreur de création: ${error.message}`);
         }
         
-        console.log('Test crÃ©Ã©:', data);
-        alert('Test crÃ©Ã© avec succÃ¨s !');
+        console.log('Test créé:', data);
+        alert('Test créé avec succès !');
       }
 
       await loadTests();
       closeModal();
       
     } catch (error) {
-      console.error('Erreur complÃ¨te:', error);
+      console.error('Erreur complète:', error);
       alert(`Erreur lors de la sauvegarde: ${error.message}`);
     } finally {
       setSaving(false);
@@ -351,7 +351,7 @@ const TestManagementSupabase = () => {
     }));
   };
 
-  // Filtrer les tests selon les critÃ¨res
+  // Filtrer les tests selon les critères
   const filteredTests = tests.filter(test => {
     const matchesSearch = test.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          test.description.toLowerCase().includes(searchTerm.toLowerCase());
@@ -359,7 +359,7 @@ const TestManagementSupabase = () => {
     return matchesSearch && matchesCategory;
   });
 
-  // Grouper les tests filtrÃ©s par catÃ©gorie
+  // Grouper les tests filtrés par catégorie
   const filteredTestsByCategory = {};
   filteredTests.forEach(test => {
     if (!filteredTestsByCategory[test.category]) {
@@ -376,7 +376,7 @@ const TestManagementSupabase = () => {
           <h2 className="text-lg font-semibold text-red-700 mb-2">Erreur de chargement</h2>
           <p className="text-red-600 mb-4">{error}</p>
           <button onClick={loadTests} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
-            RÃ©essayer
+            Réessayer
           </button>
         </div>
       </div>
@@ -400,7 +400,7 @@ const TestManagementSupabase = () => {
       <div className="mb-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">Tests Physiques par CatÃ©gorie</h2>
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Tests Physiques par Catégorie</h2>
             <p className="text-gray-600">Consultez les {tests.length} tests disponibles</p>
           </div>
           <button
@@ -435,7 +435,7 @@ const TestManagementSupabase = () => {
               onChange={(e) => setSelectedCategory(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
-              <option value="all">Toutes les catÃ©gories</option>
+              <option value="all">Toutes les catégories</option>
               {Object.keys(categoryConfig).map(category => (
                 <option key={category} value={category}>{categoryConfig[category].name}</option>
               ))}
@@ -472,7 +472,7 @@ const TestManagementSupabase = () => {
           <TestTube size={48} className="mx-auto text-gray-400 mb-4" />
           <p className="text-gray-500 mb-2">
             {searchTerm || selectedCategory !== 'all' 
-              ? 'Aucun test trouvÃ© avec ces critÃ¨res'
+              ? 'Aucun test trouvé avec ces critères'
               : 'Aucun test disponible'
             }
           </p>
@@ -484,7 +484,7 @@ const TestManagementSupabase = () => {
               }}
               className="text-blue-600 hover:text-blue-800 font-medium"
             >
-              RÃ©initialiser les filtres
+              Réinitialiser les filtres
             </button>
           )}
         </div>
@@ -552,7 +552,7 @@ const TestManagementSupabase = () => {
                           <button
                             onClick={() => setSelectedTest(test)}
                             className="text-gray-400 hover:text-blue-600 transition-colors p-1"
-                            title="Voir les dÃ©tails"
+                            title="Voir les détails"
                           >
                             <Eye size={16} />
                           </button>
@@ -590,12 +590,12 @@ const TestManagementSupabase = () => {
             </div>
             
             <p className="text-gray-600 mb-4">
-              ÃŠtes-vous sÃ»r de vouloir supprimer le test <strong>"{showDeleteConfirm.name}"</strong> ?
+              Êtes-vous sûr de vouloir supprimer le test <strong>"{showDeleteConfirm.name}"</strong> ?
             </p>
             
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
               <p className="text-yellow-800 text-sm">
-                âš ï¸ Cette action est irrÃ©versible. Le test sera dÃ©finitivement supprimÃ© de la base de donnÃ©es.
+                ⚠️ Cette action est irréversible. Le test sera définitivement supprimé de la base de données.
               </p>
             </div>
             
@@ -660,21 +660,21 @@ const TestManagementSupabase = () => {
             <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3">Informations gÃ©nÃ©rales</h3>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-3">Informations générales</h3>
                   <div className="space-y-2">
-                    <div><span className="font-medium text-gray-700">UnitÃ©:</span> <span className="ml-2 text-gray-600">{selectedTest.unit}</span></div>
-                    <div><span className="font-medium text-gray-700">DurÃ©e:</span> <span className="ml-2 text-gray-600">{selectedTest.duration}</span></div>
+                    <div><span className="font-medium text-gray-700">Unité:</span> <span className="ml-2 text-gray-600">{selectedTest.unit}</span></div>
+                    <div><span className="font-medium text-gray-700">Durée:</span> <span className="ml-2 text-gray-600">{selectedTest.duration}</span></div>
                     <div><span className="font-medium text-gray-700">Nombre d'essais:</span> <span className="ml-2 text-gray-600">{selectedTest.trials}</span></div>
-                    <div><span className="font-medium text-gray-700">QualitÃ© Ã©valuÃ©e:</span> <span className="ml-2 text-gray-600">{selectedTest.quality_evaluated}</span></div>
+                    <div><span className="font-medium text-gray-700">Qualité évaluée:</span> <span className="ml-2 text-gray-600">{selectedTest.quality_evaluated}</span></div>
                   </div>
                 </div>
                 
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3">MatÃ©riel nÃ©cessaire</h3>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-3">Matériel nécessaire</h3>
                   <ul className="list-disc list-inside space-y-1 text-gray-600">
                     {selectedTest.material && selectedTest.material.length > 0 
                       ? selectedTest.material.map((item, index) => <li key={index}>{item}</li>)
-                      : <li>Non spÃ©cifiÃ©</li>
+                      : <li>Non spécifié</li>
                     }
                   </ul>
                 </div>
@@ -686,7 +686,7 @@ const TestManagementSupabase = () => {
                 
                 {selectedTest.full_description && (
                   <>
-                    <h4 className="font-semibold text-gray-800 mb-2">Consignes de rÃ©alisation</h4>
+                    <h4 className="font-semibold text-gray-800 mb-2">Consignes de réalisation</h4>
                     <p className="text-gray-600 mb-4">{selectedTest.full_description}</p>
                   </>
                 )}
@@ -694,7 +694,7 @@ const TestManagementSupabase = () => {
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
                 <div>
-                  <h4 className="font-semibold text-gray-800 mb-2">Ã‰valuation</h4>
+                  <h4 className="font-semibold text-gray-800 mb-2">Évaluation</h4>
                   <p className="text-gray-600">{selectedTest.evaluation}</p>
                 </div>
                 <div>
@@ -714,7 +714,7 @@ const TestManagementSupabase = () => {
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-gray-800">
-                  {editingTest ? "Modifier le test" : "CrÃ©er un nouveau test"}
+                  {editingTest ? "Modifier le test" : "Créer un nouveau test"}
                 </h2>
                 <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 transition-colors">
                   <X size={24} />
@@ -737,7 +737,7 @@ const TestManagementSupabase = () => {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">CatÃ©gorie</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Catégorie</label>
                   <select
                     value={formData.category}
                     onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
@@ -763,7 +763,7 @@ const TestManagementSupabase = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">UnitÃ© de mesure</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Unité de mesure</label>
                   <input
                     type="text"
                     value={formData.unit}
@@ -774,7 +774,7 @@ const TestManagementSupabase = () => {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">DurÃ©e</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Durée</label>
                   <select
                     value={formData.duration}
                     onChange={(e) => setFormData(prev => ({ ...prev, duration: e.target.value }))}
@@ -799,7 +799,7 @@ const TestManagementSupabase = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">QualitÃ© Ã©valuÃ©e</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Qualité évaluée</label>
                 <input
                   type="text"
                   value={formData.quality_evaluated}
@@ -810,7 +810,7 @@ const TestManagementSupabase = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">MatÃ©riel nÃ©cessaire</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Matériel nécessaire</label>
                 {formData.material.length === 0 ? (
                   <button
                     type="button"
@@ -818,7 +818,7 @@ const TestManagementSupabase = () => {
                     className="w-full p-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-gray-400 hover:text-gray-600 transition-colors flex items-center justify-center space-x-2"
                   >
                     <Plus size={16} />
-                    <span>Ajouter du matÃ©riel</span>
+                    <span>Ajouter du matériel</span>
                   </button>
                 ) : (
                   <>
@@ -829,7 +829,7 @@ const TestManagementSupabase = () => {
                           value={item}
                           onChange={(e) => updateMaterialItem(index, e.target.value)}
                           className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Ex: ChronomÃ¨tre, Tapis..."
+                          placeholder="Ex: Chronomètre, Tapis..."
                         />
                         <button
                           type="button"
@@ -846,7 +846,7 @@ const TestManagementSupabase = () => {
                       className="text-blue-600 hover:text-blue-800 text-sm flex items-center space-x-1 transition-colors"
                     >
                       <Plus size={16} />
-                      <span>Ajouter du matÃ©riel</span>
+                      <span>Ajouter du matériel</span>
                     </button>
                   </>
                 )}
@@ -854,13 +854,13 @@ const TestManagementSupabase = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Ã‰valuation</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Évaluation</label>
                   <textarea
                     value={formData.evaluation}
                     onChange={(e) => setFormData(prev => ({ ...prev, evaluation: e.target.value }))}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     rows={3}
-                    placeholder="Comment Ã©valuer le rÃ©sultat"
+                    placeholder="Comment évaluer le résultat"
                   />
                 </div>
                 
@@ -871,19 +871,19 @@ const TestManagementSupabase = () => {
                     onChange={(e) => setFormData(prev => ({ ...prev, validation: e.target.value }))}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     rows={3}
-                    placeholder="CritÃ¨res de validation du test"
+                    placeholder="Critères de validation du test"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Consignes de rÃ©alisation</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Consignes de réalisation</label>
                 <textarea
                   value={formData.full_description}
                   onChange={(e) => setFormData(prev => ({ ...prev, full_description: e.target.value }))}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   rows={4}
-                  placeholder="Description dÃ©taillÃ©e du protocole"
+                  placeholder="Description détaillée du protocole"
                 />
               </div>
             </div>
@@ -905,12 +905,12 @@ const TestManagementSupabase = () => {
                 {saving ? (
                   <>
                     <Loader className="animate-spin" size={18} />
-                    <span>{editingTest ? 'Modification...' : 'CrÃ©ation...'}</span>
+                    <span>{editingTest ? 'Modification...' : 'Création...'}</span>
                   </>
                 ) : (
                   <>
                     <Save size={18} />
-                    <span>{editingTest ? 'Modifier le test' : 'CrÃ©er le test'}</span>
+                    <span>{editingTest ? 'Modifier le test' : 'Créer le test'}</span>
                   </>
                 )}
               </button>
