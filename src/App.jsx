@@ -266,7 +266,7 @@ const Header = () => {
           {/* Logo et titre EPS Santé */}
           <div className="flex items-center space-x-4">
             <img 
-              src="/logo-eps-sante.png" 
+              src={`${import.meta.env.BASE_URL}logo-eps-sante.png`} 
               alt="EPS Santé - Collège Yves du Manoir de Vaucresson" 
               className="h-16 w-auto object-contain"
             />
