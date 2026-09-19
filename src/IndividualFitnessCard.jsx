@@ -858,7 +858,9 @@ const generateHTML = (yearsData, reportType, collegeName) => {
   // Dans la boîte de dialogue, il suffit de choisir "Enregistrer au format
   // PDF" comme destination.
   const downloadWidget = `
-<button id="pdf-dl-btn" class="no-print" title="Télécharger en PDF (imprimer → Enregistrer au format PDF)" onclick="window.print()" style="position:fixed;top:16px;right:16px;z-index:9999;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:#059669;color:white;border:none;border-radius:50%;cursor:pointer;font-size:18px;box-shadow:0 4px 14px rgba(0,0,0,0.25);">⬇</button>
+<div class="no-print" style="background:#f3f4f6;border-bottom:1px solid #e5e7eb;padding:8px 16px;display:flex;justify-content:flex-end;">
+      <button title="Télécharger en PDF (imprimer → Enregistrer au format PDF)" onclick="window.print()" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:#059669;color:white;border:none;border-radius:50%;cursor:pointer;font-size:16px;box-shadow:0 2px 6px rgba(0,0,0,0.2);">⬇</button>
+    </div>
 <style>@media print { .no-print { display: none !important; } }</style>`;
 
   return `<!DOCTYPE html>
@@ -1814,7 +1816,9 @@ const IndividualFitnessCard = () => {
     // Absent quand ce document est fusionné dans l'export de toute la classe
     // (un seul bouton global suffit alors, ajouté par exportAllClassPDFs).
     const downloadBtnHTML = withButton ? `
-    <button class="no-print" title="Télécharger en PDF (imprimer → Enregistrer au format PDF)" onclick="window.print()" style="position:fixed;top:16px;right:16px;z-index:9999;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:#059669;color:white;border:none;border-radius:50%;cursor:pointer;font-size:18px;box-shadow:0 4px 14px rgba(0,0,0,0.25);">⬇</button>
+    <div class="no-print" style="background:#f3f4f6;border-bottom:1px solid #e5e7eb;padding:8px 16px;display:flex;justify-content:flex-end;">
+      <button title="Télécharger en PDF (imprimer → Enregistrer au format PDF)" onclick="window.print()" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:#059669;color:white;border:none;border-radius:50%;cursor:pointer;font-size:16px;box-shadow:0 2px 6px rgba(0,0,0,0.2);">⬇</button>
+    </div>
     <style>@media print { .no-print { display: none !important; } }</style>` : '';
 
     return `
@@ -2098,7 +2102,9 @@ const IndividualFitnessCard = () => {
     </style>
 </head>
 <body>
-    <button class="no-print" title="Télécharger en PDF (imprimer → Enregistrer au format PDF)" onclick="window.print()" style="position:fixed;top:16px;right:16px;z-index:9999;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:#059669;color:white;border:none;border-radius:50%;cursor:pointer;font-size:18px;box-shadow:0 4px 14px rgba(0,0,0,0.25);">⬇</button>
+    <div class="no-print" style="background:#f3f4f6;border-bottom:1px solid #e5e7eb;padding:8px 16px;display:flex;justify-content:flex-end;">
+      <button title="Télécharger en PDF (imprimer → Enregistrer au format PDF)" onclick="window.print()" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:#059669;color:white;border:none;border-radius:50%;cursor:pointer;font-size:16px;box-shadow:0 2px 6px rgba(0,0,0,0.2);">⬇</button>
+    </div>
     ${allPagesHTML.join('\n')}
     
     <div style="page-break-before: always; padding: 20px; text-align: center;">
