@@ -2097,6 +2097,7 @@ const IndividualFitnessCard = () => {
     </style>
 </head>
 <body>
+    <button class="no-print" title="Télécharger en PDF (imprimer → Enregistrer au format PDF)" onclick="window.print()" style="position:fixed;top:16px;right:16px;z-index:9999;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:#059669;color:white;border:none;border-radius:50%;cursor:pointer;font-size:18px;box-shadow:0 4px 14px rgba(0,0,0,0.25);">⬇</button>
     ${allPagesHTML.join('\n')}
     
     <div style="page-break-before: always; padding: 20px; text-align: center;">
@@ -2119,12 +2120,6 @@ const IndividualFitnessCard = () => {
       printWindow.document.open();
       printWindow.document.write(fullHTML);
       printWindow.document.close();
-      
-      printWindow.onload = () => {
-        setTimeout(() => {
-          printWindow.print();
-        }, 500);
-      };
 
     } catch (err) {
       console.error('Erreur lors de l\'export des fiches:', err);
