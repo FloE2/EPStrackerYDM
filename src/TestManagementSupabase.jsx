@@ -18,8 +18,11 @@ import {
   Copy,
   Edit,
   Trash2,
-  CheckCircle
+  CheckCircle,
+  Download
 } from 'lucide-react';
+
+import { ouvrirFichesAteliers } from './utils/fichesAteliers.js';
 
 // UTILISE L'INSTANCE CENTRALISÉE - PAS DE CRÉATION D'INSTANCE
 import { supabase } from './lib/supabase.js';
@@ -403,13 +406,23 @@ const TestManagementSupabase = () => {
             <h2 className="text-2xl font-bold text-gray-800 mb-2">Tests Physiques par Catégorie</h2>
             <p className="text-gray-600">Consultez les {tests.length} tests disponibles</p>
           </div>
-          <button
-            onClick={openCreateModal}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus size={18} />
-            <span>Nouveau test</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => ouvrirFichesAteliers(filteredTests)}
+              className="flex items-center space-x-2 px-4 py-2 bg-white text-blue-700 border-2 border-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
+              title="Télécharger les fiches ateliers des tests affichés"
+            >
+              <Download size={18} />
+              <span>Fiches ateliers</span>
+            </button>
+            <button
+              onClick={openCreateModal}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus size={18} />
+              <span>Nouveau test</span>
+            </button>
+          </div>
         </div>
       </div>
 
