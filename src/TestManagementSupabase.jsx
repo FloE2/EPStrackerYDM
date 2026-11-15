@@ -22,7 +22,7 @@ import {
   Download
 } from 'lucide-react';
 
-import { ouvrirFichesAteliers } from './utils/fichesAteliers.js';
+import { ouvrirFichesAteliers, trouverFiche } from './utils/fichesAteliers.js';
 
 // UTILISE L'INSTANCE CENTRALISÉE - PAS DE CRÉATION D'INSTANCE
 import { supabase } from './lib/supabase.js';
@@ -40,6 +40,9 @@ const TestManagementSupabase = () => {
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [showFichesModal, setShowFichesModal] = useState(false);
+  const [fichesSelection, setFichesSelection] = useState([]);
+  const [fichesAccueil, setFichesAccueil] = useState(true);
   const [formData, setFormData] = useState({
     name: '',
     category: 'ENDURANCE',
@@ -106,7 +109,9 @@ const TestManagementSupabase = () => {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
-        if (showDeleteConfirm) {
+        if (showFichesModal) {
+          setShowFichesModal(false);
+        } else if (showDeleteConfirm) {
           setShowDeleteConfirm(null);
         } else if (showModal) {
           closeModal();
@@ -114,7 +119,7 @@ const TestManagementSupabase = () => {
       }
     };
     
-    if (showModal || showDeleteConfirm) {
+    if (showModal || showDeleteConfirm || showFichesModal) {
       document.addEventListener('keydown', handleKeyDown);
       document.body.style.overflow = 'hidden';
     }
@@ -123,7 +128,7 @@ const TestManagementSupabase = () => {
       document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = 'unset';
     };
-  }, [showModal, showDeleteConfirm]);
+  }, [showModal, showDeleteConfirm, showFichesModal]);
 
   const loadTests = async () => {
     try {
@@ -408,9 +413,9 @@ const TestManagementSupabase = () => {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => ouvrirFichesAteliers(filteredTests)}
+              onClick={() => setShowFichesModal(true)}
               className="flex items-center space-x-2 px-4 py-2 bg-white text-blue-700 border-2 border-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
-              title="Télécharger les fiches ateliers des tests affichés"
+              title="Choisir les tests et imprimer les fiches ateliers"
             >
               <Download size={18} />
               <span>Fiches ateliers</span>
@@ -590,6 +595,154 @@ const TestManagementSupabase = () => {
           })}
         </div>
       )}
+
+      {/* Fiches ateliers : sélection des tests à imprimer */}
+      {showFichesModal && (() => {
+        const ordreCategories = Object.keys(categoryConfig);
+        const groupes = ordreCategories
+          .map(cat => [cat, testsByCategory[cat] || []])
+          .filter(([, liste]) => liste.length > 0);
+        const autres = tests.filter(t => !ordreCategories.includes(t.category));
+        if (autres.length) groupes.push(['AUTRES', autres]);
+        const estCoche = (id) => fichesSelection.includes(id);
+        const basculer = (id) => setFichesSelection(prev =>
+          prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+        const basculerCategorie = (liste) => {
+          const ids = liste.map(t => t.id);
+          const tousCoches = ids.every(id => fichesSelection.includes(id));
+          setFichesSelection(prev => tousCoches
+            ? prev.filter(id => !ids.includes(id))
+            : [...prev, ...ids.filter(id => !prev.includes(id))]);
+        };
+        // Les fiches sont imprimées dans l'ordre de la liste (= numéros d'atelier)
+        const testsChoisis = groupes.flatMap(([, liste]) => liste).filter(t => estCoche(t.id));
+        return (
+          <div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            onClick={(e) => e.target === e.currentTarget && setShowFichesModal(false)}
+          >
+            <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
+              <div className="p-6 border-b border-gray-200 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-800">Fiches ateliers à imprimer</h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Coche les tests que tu fais passer. Les ateliers sont numérotés dans l'ordre de cette liste.
+                  </p>
+                </div>
+                <button onClick={() => setShowFichesModal(false)} className="text-gray-400 hover:text-gray-600" aria-label="Fermer">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="px-6 pt-4 flex flex-wrap items-center gap-3 text-sm">
+                <button
+                  type="button"
+                  onClick={() => setFichesSelection(tests.map(t => t.id))}
+                  className="px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Tout cocher
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFichesSelection([])}
+                  className="px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Tout décocher
+                </button>
+                <label className="flex items-center gap-2 ml-auto cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={fichesAccueil}
+                    onChange={(e) => setFichesAccueil(e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <span>Ajouter la page d'accueil « Ateliers en autonomie » (rôles et règles)</span>
+                </label>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-5">
+                {groupes.map(([cat, liste]) => {
+                  const config = categoryConfig[cat] || { name: 'Autres', text: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200' };
+                  const tousCoches = liste.every(t => estCoche(t.id));
+                  return (
+                    <div key={cat} className={`${config.bg} ${config.border} border-2 rounded-lg p-4`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className={`font-bold ${config.text}`}>{config.name}</h3>
+                        <button
+                          type="button"
+                          onClick={() => basculerCategorie(liste)}
+                          className={`text-sm font-medium ${config.text} hover:underline`}
+                        >
+                          {tousCoches ? 'Tout décocher' : 'Tout cocher'}
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {liste.map(test => {
+                          const complete = Boolean(trouverFiche(test));
+                          const rang = testsChoisis.findIndex(t => t.id === test.id);
+                          return (
+                            <label
+                              key={test.id}
+                              className={`flex items-center gap-3 bg-white rounded-lg p-3 border cursor-pointer transition-colors ${
+                                estCoche(test.id) ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200 hover:border-gray-300'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={estCoche(test.id)}
+                                onChange={() => basculer(test.id)}
+                                className="w-5 h-5 flex-none"
+                              />
+                              <span className="flex-1 min-w-0">
+                                <span className="block font-medium text-gray-800">{test.name}</span>
+                                <span className={`block text-xs ${complete ? 'text-green-700' : 'text-gray-500'}`}>
+                                  {complete ? 'Fiche complète avec incontournables' : 'Fiche simplifiée (consignes saisies dans l\'appli)'}
+                                </span>
+                              </span>
+                              {rang >= 0 && (
+                                <span className="flex-none text-xs font-bold text-white bg-blue-600 rounded-full px-2 py-1">
+                                  Atelier {rang + 1}
+                                </span>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="p-6 border-t border-gray-200 flex items-center justify-between gap-4">
+                <span className="text-sm text-gray-600">
+                  {testsChoisis.length} test{testsChoisis.length > 1 ? 's' : ''} sélectionné{testsChoisis.length > 1 ? 's' : ''}
+                </span>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowFichesModal(false)}
+                    className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    disabled={testsChoisis.length === 0}
+                    onClick={() => {
+                      ouvrirFichesAteliers(testsChoisis, { accueil: fichesAccueil });
+                      setShowFichesModal(false);
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                  >
+                    <Download size={18} />
+                    <span>Imprimer {testsChoisis.length > 0 ? testsChoisis.length : ''} fiche{testsChoisis.length > 1 ? 's' : ''}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
