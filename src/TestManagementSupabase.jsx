@@ -22,7 +22,7 @@ import {
   Download
 } from 'lucide-react';
 
-import { ouvrirFichesAteliers, trouverFiche } from './utils/fichesAteliers.js';
+import { ouvrirFichesAteliers, champsManquants } from './utils/fichesAteliers.js';
 
 // UTILISE L'INSTANCE CENTRALISÉE - PAS DE CRÉATION D'INSTANCE
 import { supabase } from './lib/supabase.js';
@@ -626,7 +626,7 @@ const TestManagementSupabase = () => {
                 <div>
                   <h2 className="text-xl font-bold text-gray-800">Fiches ateliers à imprimer</h2>
                   <p className="text-sm text-gray-600 mt-1">
-                    Coche les tests que tu fais passer. Les ateliers sont numérotés dans l'ordre de cette liste.
+                    Coche les tests que tu fais passer. Les ateliers sont numérotés dans l'ordre de cette liste. Le contenu des fiches reprend exactement ce qui est enregistré pour chaque test (pour le changer : bouton « Modifier » du test).
                   </p>
                 </div>
                 <button onClick={() => setShowFichesModal(false)} className="text-gray-400 hover:text-gray-600" aria-label="Fermer">
@@ -678,7 +678,7 @@ const TestManagementSupabase = () => {
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         {liste.map(test => {
-                          const complete = Boolean(trouverFiche(test));
+                          const manquants = champsManquants(test);
                           const rang = testsChoisis.findIndex(t => t.id === test.id);
                           return (
                             <label
@@ -695,8 +695,10 @@ const TestManagementSupabase = () => {
                               />
                               <span className="flex-1 min-w-0">
                                 <span className="block font-medium text-gray-800">{test.name}</span>
-                                <span className={`block text-xs ${complete ? 'text-green-700' : 'text-gray-500'}`}>
-                                  {complete ? 'Fiche complète avec incontournables' : 'Fiche simplifiée (consignes saisies dans l\'appli)'}
+                                <span className={`block text-xs ${manquants.length ? 'text-amber-700' : 'text-green-700'}`}>
+                                  {manquants.length
+                                    ? `Non renseigné dans l'appli : ${manquants.join(', ')}`
+                                    : 'Fiche complète (consignes, validation, matériel)'}
                                 </span>
                               </span>
                               {rang >= 0 && (
