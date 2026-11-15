@@ -595,7 +595,8 @@ footer { margin-top: auto; border-top: 2px solid #111; padding-top: 8px; font-si
 `;
 
 // Ouvre les fiches dans un nouvel onglet, prêtes à imprimer ou à enregistrer en PDF
-export const ouvrirFichesAteliers = (tests) => {
+export const ouvrirFichesAteliers = (tests, options = {}) => {
+  const { accueil = true } = options;
   const liste = (tests || []).filter(Boolean);
   if (liste.length === 0) {
     alert('Aucun test à imprimer.');
@@ -606,9 +607,9 @@ export const ouvrirFichesAteliers = (tests) => {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>${CSS}</style></head><body>
-<div class="barre"><span>${liste.length} fiche${liste.length > 1 ? 's' : ''} + page d’accueil · Pour un PDF : choisir « Enregistrer au format PDF » comme imprimante</span>
+<div class="barre"><span>${liste.length} fiche${liste.length > 1 ? 's' : ''}${accueil ? ' + page d’accueil' : ''} · Pour un PDF : choisir « Enregistrer au format PDF » comme imprimante</span>
 <button onclick="window.print()">Imprimer / Enregistrer en PDF</button></div>
-${pageAccueil()}
+${accueil ? pageAccueil() : ''}
 ${liste.map((t, i) => pageFiche(t, i + 1)).join('')}
 <script>
   (document.fonts ? document.fonts.ready : Promise.resolve()).then(function () { setTimeout(function () { window.print(); }, 300); });
